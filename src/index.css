@@ -1,0 +1,40 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+.dashboard-workspace {
+  min-height: 0;
+  min-width: 0;
+}
+
+.dashboard-workspace--market-flow-strip {
+  grid-column: 1 / 4;
+  grid-row: 2 / 3;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard-workspace--market-flow-strip .MuiTabs-root {
+  min-height: 26px;
+}
+
+.dashboard-workspace--market-flow-strip .MuiTab-root {
+  min-height: 26px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 10px;
+}
+
+.dashboard-workspace--market-flow-strip .MuiTypography-root {
+  line-height: 1.15;
+}
