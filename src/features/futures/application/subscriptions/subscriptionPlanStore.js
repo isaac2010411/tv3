@@ -20,6 +20,21 @@ import { create } from 'zustand'
  *   'tape' | 'heatmap' | 'liquidityShifts' | 'spoofing' | 'signals'
  */
 
+export const PREFERRED_INTERVAL_ORDER = ['1m', '5m', '15m', '1h', '4h']
+
+function intervalRank(interval) {
+  const index = PREFERRED_INTERVAL_ORDER.indexOf(interval)
+  return index === -1 ? PREFERRED_INTERVAL_ORDER.length : index
+}
+
+function sortIntervalsByPreferredOrder(intervals) {
+  return Array.from(intervals).sort((a, b) => {
+    const rankDiff = intervalRank(a) - intervalRank(b)
+    if (rankDiff !== 0) return rankDiff
+    return String(a).localeCompare(String(b))
+  })
+}
+
 function newSymbolPlan() {
   return {
     features: new Map(),
@@ -101,6 +116,6 @@ export function snapshotPlan(plan) {
   if (!plan) return { features: [], intervals: [] }
   return {
     features: Array.from(plan.features.keys()).sort(),
-    intervals: Array.from(plan.intervals.keys()).sort(),
+    intervals: sortIntervalsByPreferredOrder(plan.intervals.keys()),
   }
 }
