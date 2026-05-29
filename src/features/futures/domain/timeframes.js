@@ -5,7 +5,7 @@
  * `['1m', '5m', '15m']` again.
  */
 
-export const INTERVALS = ['1m']
+export const INTERVALS = ['1m', '5m', '15m', '1h', '4h']
 
 export const DEFAULT_INTERVAL = '1m'
 
@@ -21,7 +21,10 @@ export function normalizeInterval(interval) {
 
 const INTERVAL_MS = {
   '1m': 60_000,
-
+  '5m': 5 * 60_000,
+  '15m': 15 * 60_000,
+  '1h': 60 * 60_000,
+  '4h': 4 * 60 * 60_000,
 }
 
 export function intervalToMs(interval) {
