@@ -28,7 +28,7 @@ function normalizeTs(value) {
 
 function extractSymbol(data) {
   return (
-    data?.symbol ?? data?.s ?? data?.candle?.symbol ?? data?.candle?.s ?? data?.kline?.symbol ?? data?.kline?.s ?? null
+    data?.symbol ?? data?.s ?? data?.candle?.symbol ?? data?.candle?.s ?? data?.kline?.symbol ?? data?.kline?.s ?? data?.footprint?.symbol ?? data?.footprint?.s ?? null
   )
 }
 
@@ -56,6 +56,8 @@ function extractInterval(data) {
     data?.k?.i ??
     data?.kline?.interval ??
     data?.kline?.i ??
+    data?.footprint?.interval ??
+    data?.footprint?.i ??
     null
   )
 }
@@ -104,9 +106,6 @@ export function useFuturesAssetRealtime(
   const intervalsKey = (safeIntervals ?? []).join(',')
   const stableIntervals = useMemo(() => intervalsKey.split(',').filter(Boolean), [intervalsKey])
 
-  // Register `candles` feature for each requested interval. The actual
-  // SUBSCRIBE_ASSET emit is performed by `useSocketSubscriptionSync` once
-  // per dashboard, taking the union of every active feature/interval.
   useEffect(() => {
     if (!symbol) return undefined
     const { register, unregister } = useSubscriptionPlanStore.getState()
@@ -189,7 +188,10 @@ export function useFuturesAssetRealtime(
 
     if (frame.ticker) useMarketDataStore.getState().setTicker(symbol, frame.ticker)
     if (frame.markPrice) useMarketDataStore.getState().setMarkPrice(symbol, frame.markPrice)
-    if (frame.footprint) useOrderFlowStore.getState().setFootprint(symbol, frame.footprint)
+    if (frame.footprint) {
+      useOrderFlowStore.getState().setFootprint(symbol, frame.footprint)
+      useOrderFlowStore.getState().upsertFootprint(symbol, frame.footprint, 200)
+    }
     if (frame.signalUpdate) useSignalStore.getState().setSignalUpdate(symbol, frame.signalUpdate)
     if (frame.liquidityShift) useSignalStore.getState().prependLiquidityShift(symbol, frame.liquidityShift, 100)
     if (frame.spoofingCandidate) useSignalStore.getState().prependSpoofingCandidate(symbol, frame.spoofingCandidate, 50)
