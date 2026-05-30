@@ -7,8 +7,10 @@
  */
 import { create } from 'zustand';
 import { appendCvdPoint } from '../../domain/cvd.model';
+import { buildFootprintDisplay, upsertFootprint } from '../../domain/footprint.model';
 
 export const EMPTY_ARRAY = Object.freeze([]);
+export const EMPTY_MAP = Object.freeze(new Map());
 
 function toMs(value) {
   const n = Number(value);
@@ -42,6 +44,10 @@ function eventKey(event) {
     .join('|');
 }
 
+function footprintInterval(event, display) {
+  return event?.interval ?? event?.i ?? display?.interval ?? null;
+}
+
 export const useOrderFlowStore = create((set, get) => ({
   /** { [symbol]: TradeObject[] } */
   recentTradesBySymbol: {},
@@ -52,6 +58,12 @@ export const useOrderFlowStore = create((set, get) => ({
   /** { [symbol]: FootprintData | null } */
   footprintBySymbol: {},
 
+  /** { [symbol]: Map<interval, FootprintDisplay[]> } */
+  footprintHistoryBySymbol: {},
+
+  /** { [symbol]: Map<interval, FootprintDisplay> } */
+  currentFootprintBySymbol: {},
+
   // ── actions ───────────────────────────────────────────────────────────────
 
   resetSymbol(symbol) {
@@ -60,6 +72,8 @@ export const useOrderFlowStore = create((set, get) => ({
       recentTradesBySymbol: { ...s.recentTradesBySymbol, [symbol]: [] },
       cvdHistoryBySymbol:   { ...s.cvdHistoryBySymbol,   [symbol]: [] },
       footprintBySymbol:    { ...s.footprintBySymbol,    [symbol]: null },
+      footprintHistoryBySymbol: { ...s.footprintHistoryBySymbol, [symbol]: new Map() },
+      currentFootprintBySymbol: { ...s.currentFootprintBySymbol, [symbol]: new Map() },
     }));
   },
 
@@ -70,7 +84,15 @@ export const useOrderFlowStore = create((set, get) => ({
       const t = { ...s.recentTradesBySymbol }; delete t[symbol];
       const c = { ...s.cvdHistoryBySymbol };   delete c[symbol];
       const f = { ...s.footprintBySymbol };    delete f[symbol];
-      return { recentTradesBySymbol: t, cvdHistoryBySymbol: c, footprintBySymbol: f };
+      const fh = { ...s.footprintHistoryBySymbol }; delete fh[symbol];
+      const cf = { ...s.currentFootprintBySymbol }; delete cf[symbol];
+      return {
+        recentTradesBySymbol: t,
+        cvdHistoryBySymbol: c,
+        footprintBySymbol: f,
+        footprintHistoryBySymbol: fh,
+        currentFootprintBySymbol: cf,
+      };
     });
   },
 
@@ -116,6 +138,56 @@ export const useOrderFlowStore = create((set, get) => ({
       footprintBySymbol: { ...s.footprintBySymbol, [symbol]: footprint },
     }));
   },
+
+  setFootprintHistory(symbol, interval, rawList, maxItems = 200) {
+    if (!symbol || !interval || !Array.isArray(rawList)) return;
+    const parsed = rawList.map(buildFootprintDisplay).filter(Boolean);
+    set((s) => {
+      const prevByInterval = s.footprintHistoryBySymbol[symbol] ?? new Map();
+      const nextByInterval = new Map(prevByInterval);
+      nextByInterval.set(interval, parsed.length > maxItems ? parsed.slice(-maxItems) : parsed);
+      return {
+        footprintHistoryBySymbol: {
+          ...s.footprintHistoryBySymbol,
+          [symbol]: nextByInterval,
+        },
+      };
+    });
+  },
+
+  upsertFootprint(symbol, event, maxItems = 200) {
+    if (!symbol || !event?.footprint) return;
+    const fp = buildFootprintDisplay(event.footprint);
+    if (!fp) return;
+    const interval = footprintInterval(event, fp);
+    if (!interval) return;
+
+    set((s) => {
+      const prevHistoryByInterval = s.footprintHistoryBySymbol[symbol] ?? new Map();
+      const nextHistoryByInterval = new Map(prevHistoryByInterval);
+      const prevCurrentByInterval = s.currentFootprintBySymbol[symbol] ?? new Map();
+      const nextCurrentByInterval = new Map(prevCurrentByInterval);
+
+      if (fp.isFinal) {
+        const history = nextHistoryByInterval.get(interval) ?? EMPTY_ARRAY;
+        nextHistoryByInterval.set(interval, upsertFootprint(history, fp, maxItems));
+        nextCurrentByInterval.delete(interval);
+      } else {
+        nextCurrentByInterval.set(interval, fp);
+      }
+
+      return {
+        footprintHistoryBySymbol: {
+          ...s.footprintHistoryBySymbol,
+          [symbol]: nextHistoryByInterval,
+        },
+        currentFootprintBySymbol: {
+          ...s.currentFootprintBySymbol,
+          [symbol]: nextCurrentByInterval,
+        },
+      };
+    });
+  },
 }));
 
 // ── selectors ────────────────────────────────────────────────────────────────
@@ -126,3 +198,7 @@ export const selectCvdHistoryBySymbol = (symbol) => (s) =>
   s.cvdHistoryBySymbol[symbol] ?? EMPTY_ARRAY;
 export const selectFootprintBySymbol = (symbol) => (s) =>
   s.footprintBySymbol[symbol] ?? null;
+export const selectFootprintHistoryBySymbol = (symbol) => (s) =>
+  s.footprintHistoryBySymbol[symbol] ?? EMPTY_MAP;
+export const selectCurrentFootprintBySymbol = (symbol) => (s) =>
+  s.currentFootprintBySymbol[symbol] ?? EMPTY_MAP;
