@@ -1,63 +1,42 @@
-import { useEffect, useState, useCallback } from 'react'
-import { onEvent, offEvent } from '../infrastructure/futuresSocketClient'
-import { appendCvdPoint } from '../domain/cvd.model'
+import { useMemo } from 'react'
 import { useFeatureSubscription } from './subscriptions/useFeatureSubscription'
-
-const MAX_CVD_HISTORY = 500
-
-function eventSymbol(event) {
-  return event?.symbol ?? event?.s ?? null
-}
+import { useOrderFlowStore, selectCvdHistoryBySymbol } from './stores/orderFlowStore'
 
 function eventInterval(event) {
   return event?.interval ?? event?.i ?? null
 }
 
 /**
- * Subscribes to the server's `futures:orderflow:cvd` stream and maintains
- * a rolling history of CVD points for chart rendering.
+ * Reads CVD data from the centralized order-flow store populated by
+ * `useFuturesAssetRealtime`.
  *
- * If `interval` is provided, only events tagged with that timeframe are
- * accepted. Untagged events (legacy backend) are passed through so the chart
- * keeps working until the backend starts emitting `interval` in the payload.
+ * This hook still registers the desired `cvd` feature in the subscription plan,
+ * but it no longer attaches its own Socket.IO listener. Keeping a single CVD
+ * listener avoids duplicate callbacks when dashboard panels mount/unmount.
  *
- * TODO(backend tv1): emit `interval` field in `futures:orderflow:cvd`
- * and split CVD accumulator per (symbol, interval) in symbolWorker so each
- * TF has its own series.
+ * If `interval` is provided, tagged events for other TFs are filtered out while
+ * untagged legacy events are accepted as a fallback until tv1 emits interval
+ * consistently.
  *
  * @param {string}  symbol
  * @param {string} [interval] active timeframe; omit for legacy global stream
  * @returns {{ cvd: number, cvdHistory: import('../domain/cvd.model').CvdPoint[] }}
  */
 export function useCvdData(symbol, interval) {
-  const [cvd, setCvd] = useState(0)
-  const [cvdHistory, setCvdHistory] = useState([])
-
   useFeatureSubscription(symbol, 'cvd', interval ?? null)
 
-  const handleCvd = useCallback(
-    (event) => {
-      const payloadSymbol = eventSymbol(event)
-      if (payloadSymbol && payloadSymbol !== symbol) return
+  const storeHistory = useOrderFlowStore(selectCvdHistoryBySymbol(symbol))
+
+  const cvdHistory = useMemo(() => {
+    if (!interval) return storeHistory
+    return storeHistory.filter((event) => {
       const evInterval = eventInterval(event)
-      // If interval was requested and the event is tagged with a different TF, drop it.
-      // Untagged events (evInterval == null) are accepted as a transitional fallback.
-      if (interval && evInterval && evInterval !== interval) return
-      setCvd(parseFloat(event.cvd) || 0)
-      setCvdHistory((prev) => appendCvdPoint(prev, event, MAX_CVD_HISTORY))
-    },
-    [symbol, interval],
-  )
+      return !evInterval || evInterval === interval
+    })
+  }, [storeHistory, interval])
 
-  useEffect(() => {
-    if (!symbol) return undefined
-
-    setCvd(0)
-    setCvdHistory([])
-
-    onEvent('futures:orderflow:cvd', handleCvd)
-    return () => offEvent('futures:orderflow:cvd', handleCvd)
-  }, [symbol, interval, handleCvd])
+  const last = cvdHistory[cvdHistory.length - 1]
+  const cvd = Number.parseFloat(last?.cvd ?? last?.value ?? 0) || 0
 
   return { cvd, cvdHistory }
 }
