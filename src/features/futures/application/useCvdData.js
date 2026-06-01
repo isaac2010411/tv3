@@ -14,13 +14,12 @@ function eventInterval(event) {
  * but it no longer attaches its own Socket.IO listener. Keeping a single CVD
  * listener avoids duplicate callbacks when dashboard panels mount/unmount.
  *
- * If `interval` is provided, tagged events for other TFs are filtered out while
- * untagged legacy events are accepted as a fallback until tv1 emits interval
- * consistently.
+ * If `interval` is provided, only tv1-tagged events for that timeframe are
+ * exposed.
  *
  * @param {string}  symbol
  * @param {string} [interval] active timeframe; omit for legacy global stream
- * @returns {{ cvd: number, cvdHistory: import('../domain/cvd.model').CvdPoint[] }}
+ * @returns {{ cvd: number, cvdHistory: object[] }}
  */
 export function useCvdData(symbol, interval) {
   useFeatureSubscription(symbol, 'cvd', interval ?? null)
@@ -31,7 +30,7 @@ export function useCvdData(symbol, interval) {
     if (!interval) return storeHistory
     return storeHistory.filter((event) => {
       const evInterval = eventInterval(event)
-      return !evInterval || evInterval === interval
+      return evInterval === interval
     })
   }, [storeHistory, interval])
 

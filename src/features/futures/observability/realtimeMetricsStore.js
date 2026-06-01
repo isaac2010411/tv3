@@ -166,7 +166,7 @@ export const useRealtimeMetricsStore = create((set) => ({
         windowCount = 0
       }
 
-      const sampleValue = latency.backendToFrontendMs ?? latency.exchangeToFrontendMs ?? null
+      const sampleValue = latency.backendAuthoritativeMs ?? null
       const samples =
         sampleValue == null ? currentStream.samples : [...currentStream.samples, sampleValue].slice(-MAX_SAMPLES)
 

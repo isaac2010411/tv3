@@ -28,11 +28,11 @@ function extractEventTime(raw) {
   return toMs(raw.eventTime ?? raw.E ?? raw.timestamp ?? raw.ts)
 }
 
-function normalizeInterval(raw, fallback = null) {
-  return raw?.interval ?? raw?.i ?? fallback ?? null
+function normalizeInterval(raw, defaultInterval = null) {
+  return raw?.interval ?? raw?.i ?? defaultInterval ?? null
 }
 
-function normalizeCandle(raw, fallbackInterval = null) {
+function normalizeCandle(raw, defaultInterval = null) {
   if (!raw) return null
 
   const openTime = toMs(raw.openTime ?? raw.t ?? raw.open_time)
@@ -49,7 +49,7 @@ function normalizeCandle(raw, fallbackInterval = null) {
 
   return {
     ...raw,
-    interval: normalizeInterval(raw, fallbackInterval),
+    interval: normalizeInterval(raw, defaultInterval),
     eventTime: extractEventTime(raw),
     openTime,
     closeTime: toMs(raw.closeTime ?? raw.T ?? raw.close_time) ?? raw.closeTime ?? raw.T ?? null,
@@ -83,6 +83,9 @@ export const useMarketDataStore = create((set, get) => ({
   /** { [symbol]: { [interval]: CandleObject[] } } */
   candlesBySymbol: {},
 
+  /** { [symbol]: { [interval]: IndicatorPayload | null } } */
+  indicatorsBySymbol: {},
+
   // ── actions ───────────────────────────────────────────────────────────────
 
   resetSymbol(symbol) {
@@ -92,6 +95,7 @@ export const useMarketDataStore = create((set, get) => ({
       markPriceBySymbol: { ...s.markPriceBySymbol, [symbol]: null },
       serverContextBySymbol: { ...s.serverContextBySymbol, [symbol]: null },
       candlesBySymbol: { ...s.candlesBySymbol, [symbol]: {} },
+      indicatorsBySymbol: { ...s.indicatorsBySymbol, [symbol]: {} },
     }))
   },
 
@@ -103,7 +107,8 @@ export const useMarketDataStore = create((set, get) => ({
       const m = { ...s.markPriceBySymbol };     delete m[symbol]
       const sc = { ...s.serverContextBySymbol }; delete sc[symbol]
       const c = { ...s.candlesBySymbol };       delete c[symbol]
-      return { tickerBySymbol: t, markPriceBySymbol: m, serverContextBySymbol: sc, candlesBySymbol: c }
+      const i = { ...s.indicatorsBySymbol };    delete i[symbol]
+      return { tickerBySymbol: t, markPriceBySymbol: m, serverContextBySymbol: sc, candlesBySymbol: c, indicatorsBySymbol: i }
     })
   },
 
@@ -175,6 +180,19 @@ export const useMarketDataStore = create((set, get) => ({
       }
     })
   },
+
+  setIndicators(symbol, interval, indicators) {
+    if (!symbol || !interval) return
+    set((s) => {
+      const prev = s.indicatorsBySymbol[symbol] ?? {}
+      return {
+        indicatorsBySymbol: {
+          ...s.indicatorsBySymbol,
+          [symbol]: { ...prev, [interval]: indicators },
+        },
+      }
+    })
+  },
 }))
 
 // ── selectors ────────────────────────────────────────────────────────────────
@@ -185,3 +203,5 @@ export const selectServerContextBySymbol = (symbol) => (s) => s.serverContextByS
 export const selectCandlesBySymbolInterval = (symbol, interval) => (s) =>
   s.candlesBySymbol[symbol]?.[interval] ?? EMPTY_ARRAY
 export const selectAllCandlesBySymbol = (symbol) => (s) => s.candlesBySymbol[symbol] ?? EMPTY_CANDLES
+export const selectIndicatorsBySymbolInterval = (symbol, interval) => (s) =>
+  s.indicatorsBySymbol[symbol]?.[interval] ?? null

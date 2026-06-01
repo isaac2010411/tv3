@@ -5,18 +5,13 @@
  *  - Current state badge with transition history
  *  - Score bar (directional)
  *  - Confidence indicator
- *  - Active signal card (entry/exit/warning)
  *  - Per-factor score breakdown
  *  - Missing context warnings
  *  - Local position display with PnL
- *  - Accept / Reject / Close position actions
  */
 
 import React, { useMemo } from 'react'
-import { Box, Typography, Chip, Button, Divider, Tooltip, LinearProgress, Stack } from '@mui/material'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import CancelIcon from '@mui/icons-material/Cancel'
-import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import { Box, Typography, Chip, Button, Divider, Tooltip, LinearProgress } from '@mui/material'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 
@@ -25,9 +20,6 @@ import { calcUnrealizedPnL } from '../../domain/signalEngine/LocalPositionGuard'
 import SignalPopup from './SignalPopup'
 import {
   SIGNAL_STATES,
-  ENTRY_SIGNAL_STATES,
-  EXIT_SIGNAL_STATES,
-  EXIT_WARNING_STATES,
 } from '../../domain/signalEngine/signalEngineStates'
 
 // ─── Missing context labels ────────────────────────────────────────────────────
@@ -198,67 +190,6 @@ function FactorRow({ reason }) {
   )
 }
 
-function SignalCard({ signal }) {
-  if (!signal) return null
-
-  const isEntry = signal.type === 'ENTRY'
-  const isExit = signal.type === 'EXIT'
-  const isWarning = signal.type === 'WARNING'
-
-  const borderColor = isEntry
-    ? signal.direction === 'LONG'
-      ? '#22C55E'
-      : '#EF4444'
-    : isExit
-      ? '#F97316'
-      : isWarning
-        ? '#F59E0B'
-        : '#6B7280'
-
-  const now = Date.now()
-  const remainsSec = Math.max(0, Math.floor((signal.expiresAt - now) / 1000))
-  const mm = String(Math.floor(remainsSec / 60)).padStart(2, '0')
-  const ss = String(remainsSec % 60).padStart(2, '0')
-
-  return (
-    <Box
-      sx={{
-        border: `1px solid ${borderColor}`,
-        borderRadius: 1,
-        p: 1,
-        bgcolor: `${borderColor}10`,
-      }}
-    >
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
-        <Typography sx={{ fontSize: 11, fontWeight: 700, color: borderColor }}>{signal.title}</Typography>
-        <Typography sx={{ fontSize: 9, color: 'text.secondary' }}>
-          {mm}:{ss}
-        </Typography>
-      </Box>
-      <Typography sx={{ fontSize: 10, color: 'text.secondary', lineHeight: 1.4, mb: 0.75 }}>
-        {signal.summary}
-      </Typography>
-      {signal.risk?.entryPrice && (
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <RiskPill label='Entrada' value={Number(signal.risk.entryPrice).toFixed(2)} color='#94A3B8' />
-          <RiskPill label='SL' value={Number(signal.risk.stopLoss).toFixed(2)} color='#EF4444' />
-          <RiskPill label='TP' value={Number(signal.risk.takeProfit).toFixed(2)} color='#22C55E' />
-          <RiskPill label='R/R' value={signal.risk.riskReward} color='#F59E0B' />
-        </Box>
-      )}
-    </Box>
-  )
-}
-
-function RiskPill({ label, value, color }) {
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
-      <Typography sx={{ fontSize: 9, color: 'text.secondary' }}>{label}</Typography>
-      <Typography sx={{ fontSize: 10, color, fontWeight: 700 }}>{value}</Typography>
-    </Box>
-  )
-}
-
 function LocalPositionCard({ position, currentPrice, onClose }) {
   const pnl = calcUnrealizedPnL(position, currentPrice)
 
@@ -343,14 +274,9 @@ function SignalEnginePanel({ symbol, interval = '1m' }) {
     dismissPopup,
   } = useSignalEngine(symbol, interval)
 
-  const { state, netScore, confidence, activeSignal, reasons, missingContext } = engineResult
+  const { state, netScore, confidence, reasons, missingContext } = engineResult
 
   const stateCfg = STATE_CONFIG[state] ?? { color: '#64748B', label: state, desc: '' }
-
-  const isEntrySignal = ENTRY_SIGNAL_STATES.has(state)
-  const isExitSignal = EXIT_SIGNAL_STATES.has(state)
-  const isWarning = EXIT_WARNING_STATES.has(state)
-  const hasPosition = hasOpenPosition
 
   const visibleReasons = useMemo(() => (Array.isArray(reasons) ? reasons : []), [reasons])
 
@@ -404,51 +330,8 @@ function SignalEnginePanel({ symbol, interval = '1m' }) {
 
         <Divider sx={{ borderColor: '#1E293B' }} />
 
-        {/* Active signal card */}
-        {activeSignal && <SignalCard signal={activeSignal} />}
-
-        {/* Entry signal actions */}
-        {isEntrySignal && !hasPosition && (
-          <Stack direction='row' spacing={0.75}>
-            <Button
-              size='small'
-              variant='contained'
-              color='success'
-              startIcon={<CheckCircleIcon sx={{ fontSize: 13 }} />}
-              onClick={acceptSignal}
-              sx={{ flex: 1, fontSize: 10, py: 0.5 }}
-            >
-              Aceptar (local)
-            </Button>
-            <Button
-              size='small'
-              variant='outlined'
-              color='inherit'
-              startIcon={<CancelIcon sx={{ fontSize: 13 }} />}
-              onClick={rejectSignal}
-              sx={{ flex: 1, fontSize: 10, py: 0.5, color: 'text.secondary', borderColor: '#334155' }}
-            >
-              Rechazar
-            </Button>
-          </Stack>
-        )}
-
-        {/* Exit signal action */}
-        {(isExitSignal || isWarning) && hasPosition && (
-          <Button
-            size='small'
-            variant='contained'
-            color='warning'
-            startIcon={<WarningAmberIcon sx={{ fontSize: 13 }} />}
-            onClick={closePosition}
-            sx={{ fontSize: 10, py: 0.5 }}
-          >
-            Cerrar posición (local)
-          </Button>
-        )}
-
         {/* Local position */}
-        {hasPosition && <LocalPositionCard position={position} currentPrice={currentPrice} onClose={closePosition} />}
+        {hasOpenPosition && <LocalPositionCard position={position} currentPrice={currentPrice} onClose={closePosition} />}
 
         <Divider sx={{ borderColor: '#1E293B' }} />
 

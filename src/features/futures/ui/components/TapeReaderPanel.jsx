@@ -3,8 +3,6 @@ import {
   Box, Card, CardHeader, CardContent, Chip,
   Slider, Typography,
 } from '@mui/material';
-import { formatTrade } from '../../domain/tape.model';
-import { safeNumber } from '../../utils/marketDataGuards';
 
 const SIZE_COLOR = { large: '#FBBF24', medium: undefined, small: undefined };
 const SIDE_COLOR = { buy: '#16A34A', sell: '#EF4444' };
@@ -30,23 +28,28 @@ function TapeReaderPanel({ trades = [], height = 320 }) {
   const ROW_HEIGHT = 20;
   const OVERSCAN = 12;
 
-  // Compute recent quantities for size classification
-  const recentQtys = useMemo(
-    () => trades.slice(0, 100).map((t) => safeNumber(t.qty ?? t.quantity, 0)),
-    [trades]
-  );
-
-  // Build enriched entries
   const entries = useMemo(() => {
     return trades
       .slice(0, 160)
       .map((t) => {
-        const fmt      = formatTrade(t, recentQtys);
-        const notional = fmt.price * fmt.qty;
-        return { ...fmt, notional };
+        const time = t.time ?? t.timestamp ?? t.ts ?? t._meta?.exchangeEventTime ?? Date.now();
+        return {
+          time,
+          timeStr: t.timeStr ?? new Date(time).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' }),
+          side: t.side ?? 'unknown',
+          price: Number(t.priceNumber ?? t.price),
+          qty: Number(t.qtyNumber ?? t.qty ?? t.quantity),
+          notional: Number(t.notional),
+          sizeClass: t.sizeClass ?? 'small',
+        };
       })
-      .filter((e) => e.notional >= minNotional);
-  }, [trades, recentQtys, minNotional]);
+      .filter((e) =>
+        Number.isFinite(e.price) &&
+        Number.isFinite(e.qty) &&
+        Number.isFinite(e.notional) &&
+        e.notional >= minNotional
+      );
+  }, [trades, minNotional]);
 
   const visibleCount = Math.max(10, Math.ceil(height / ROW_HEIGHT) + OVERSCAN * 2);
   const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
@@ -138,7 +141,9 @@ function TapeRow({ entry }) {
     ? 'rgba(251,191,36,0.08)'
     : entry.side === 'buy'
       ? 'rgba(22,163,74,0.06)'
-      : 'rgba(239,68,68,0.06)';
+      : entry.side === 'sell'
+        ? 'rgba(239,68,68,0.06)'
+        : 'rgba(107,114,128,0.06)';
 
   return (
     <Box
@@ -157,7 +162,7 @@ function TapeRow({ entry }) {
       <Typography variant="inherit" color="text.secondary">{entry.timeStr}</Typography>
 
       <Box sx={{ textAlign: 'center', fontWeight: 700, color: SIDE_COLOR[entry.side], letterSpacing: '0.02em' }}>
-        {entry.side === 'buy' ? 'B' : 'S'}
+        {entry.side === 'buy' ? 'B' : entry.side === 'sell' ? 'S' : '-'}
       </Box>
 
       <Typography variant="inherit" sx={{ textAlign: 'right', pr: 1 }}>

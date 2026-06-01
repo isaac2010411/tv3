@@ -59,19 +59,48 @@ export function safeFormat(value, decimals = 2, placeholder = '—') {
  */
 export function sanitizeOrderBook(orderBook) {
   if (!orderBook || typeof orderBook !== 'object') return null;
-  if (!Array.isArray(orderBook.bids) || orderBook.bids.length === 0) return null;
-  if (!Array.isArray(orderBook.asks) || orderBook.asks.length === 0) return null;
-  if (!orderBook.isValidTopOfBook) return null;
-  if (!isFiniteNumber(orderBook.bestBid) || orderBook.bestBid <= 0) return null;
-  if (!isFiniteNumber(orderBook.bestAsk) || orderBook.bestAsk <= 0) return null;
-  return orderBook;
+  const bids = Array.isArray(orderBook.bids)
+    ? orderBook.bids
+      .map((level) => ({
+        ...level,
+        price: safeNumber(level?.price ?? level?.[0], null),
+        quantity: safeNumber(level?.quantity ?? level?.qty ?? level?.[1], null),
+      }))
+      .filter((level) => level.price != null && level.quantity != null && level.quantity > 0)
+    : [];
+  const asks = Array.isArray(orderBook.asks)
+    ? orderBook.asks
+      .map((level) => ({
+        ...level,
+        price: safeNumber(level?.price ?? level?.[0], null),
+        quantity: safeNumber(level?.quantity ?? level?.qty ?? level?.[1], null),
+      }))
+      .filter((level) => level.price != null && level.quantity != null && level.quantity > 0)
+    : [];
+  if (bids.length === 0 || asks.length === 0) return null;
+
+  const bestBid = safeNumber(orderBook.bestBid, null);
+  const bestAsk = safeNumber(orderBook.bestAsk, null);
+  if (bestBid == null || bestAsk == null || bestBid <= 0 || bestAsk <= bestBid) return null;
+
+  return {
+    ...orderBook,
+    bids,
+    asks,
+    bestBid,
+    bestAsk,
+    spread: safeNumber(orderBook.spread, bestAsk - bestBid),
+    spreadPct: safeNumber(orderBook.spreadPct, null),
+    midPrice: safeNumber(orderBook.midPrice, (bestBid + bestAsk) / 2),
+    isValidTopOfBook: true,
+  };
 }
 
 /**
  * Filters an order book to levels within `pctRange` percent of the mid price.
  * Returns null if the resulting book is empty or invalid.
  *
- * @param {Object} orderBook  – already processed (from processOrderBook)
+ * @param {Object} orderBook  – backend-enriched order book
  * @param {number} pctRange   – e.g. 0.5 means ±0.5% around mid
  * @returns {Object|null}
  */
@@ -164,13 +193,32 @@ export function sanitizeCandles(candles) {
  */
 export function sanitizeFootprint(footprint) {
   if (!footprint || !Array.isArray(footprint.levels)) return null;
-  const levels = footprint.levels.filter((lvl) =>
-    isFiniteNumber(lvl.price)   && lvl.price   > 0 &&
-    isFiniteNumber(lvl.buyVol)  && lvl.buyVol  >= 0 &&
-    isFiniteNumber(lvl.sellVol) && lvl.sellVol >= 0
-  );
+  const levels = footprint.levels
+    .map((lvl) => ({
+      ...lvl,
+      price: safeNumber(lvl.price, null),
+      buyVol: safeNumber(lvl.buyVol, null),
+      sellVol: safeNumber(lvl.sellVol, null),
+      total: safeNumber(lvl.total, null),
+      delta: safeNumber(lvl.delta, null),
+      imbalance: safeNumber(lvl.imbalance, null),
+    }))
+    .filter((lvl) =>
+      lvl.price != null && lvl.price > 0 &&
+      lvl.buyVol != null && lvl.buyVol >= 0 &&
+      lvl.sellVol != null && lvl.sellVol >= 0
+    );
   if (levels.length === 0) return null;
-  return { ...footprint, levels };
+  return {
+    ...footprint,
+    open: safeNumber(footprint.open, null),
+    high: safeNumber(footprint.high, null),
+    low: safeNumber(footprint.low, null),
+    close: safeNumber(footprint.close, null),
+    volume: safeNumber(footprint.volume, null),
+    totalDelta: safeNumber(footprint.totalDelta, null),
+    levels,
+  };
 }
 
 // ─── CVD ──────────────────────────────────────────────────────────────────────

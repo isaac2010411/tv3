@@ -14,7 +14,11 @@ function fmtRate(value) {
 }
 
 function pickLatency(stream) {
-  return stream?.backendAuthoritativeMs ?? stream?.backendToFrontendMs ?? stream?.exchangeToFrontendMs ?? null
+  return stream?.backendAuthoritativeMs ?? null
+}
+
+function pickDiagnosticTransport(...streams) {
+  return streams.find((stream) => stream?.transportToFrontendMs != null)?.transportToFrontendMs ?? null
 }
 
 function resolvePrimaryStream(book, trades, cvd, candle) {
@@ -88,7 +92,7 @@ export default function LatencyStatusBadge({ symbol }) {
       </Typography>
       <Typography sx={{ fontSize: 10 }}>
         Front transport (diag):{' '}
-        {fmtMs(book?.transportToFrontendMs ?? trades?.transportToFrontendMs ?? cvd?.transportToFrontendMs)}
+        {fmtMs(pickDiagnosticTransport(book, trades, cvd, candle))}
       </Typography>
       <Typography sx={{ fontSize: 10 }}>
         p95 WS ({primary.label}): {fmtMs(primaryP95)}

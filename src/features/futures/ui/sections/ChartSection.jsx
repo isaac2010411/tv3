@@ -19,6 +19,7 @@ import {
   selectOrderBookBySymbol,
   selectLocalBookBySymbol,
   selectTopOfBookBySymbol,
+  selectBookMetricsBySymbol,
 } from '../../application/stores/orderBookStore'
 
 const CHART_TABS = [
@@ -70,10 +71,11 @@ function ChartSection({
   const localBook = useOrderBookStore(selectLocalBookBySymbol(symbol))
   const orderBook = localBook ?? partialBook
   const topOfBook = useOrderBookStore(selectTopOfBookBySymbol(symbol))
+  const bookMetrics = useOrderBookStore(selectBookMetricsBySymbol(symbol))
   const markPriceEvent = useMarketDataStore(selectMarkPriceBySymbol(symbol))
 
   const markPrice = markPriceEvent?.markPrice ?? null
-  const midPrice = topOfBook?.midPrice ?? orderBook?.midPrice ?? null
+  const midPrice = bookMetrics?.midPrice ?? topOfBook?.midPrice ?? null
 
   return (
     <ChartWorkspace>

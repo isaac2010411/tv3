@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { Box, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import * as d3 from 'd3';
 import { sanitizeOrderBook } from '../../utils/marketDataGuards';
 
@@ -16,7 +16,7 @@ const MODE_RANGE = { tactical: 0.25, macro: 1.0 };
  *   – Displays spread (absolute + %) from book data.
  *
  * Props:
- *   orderBook  – processed OrderBook from processOrderBook()
+ *   orderBook  – backend-enriched order book
  *   height     – SVG height in px (default 200)
  *   markPrice  – optional mark price to overlay
  *   mode       – 'tactical' | 'macro' (controlled externally, optional)
@@ -63,7 +63,12 @@ export default function DepthChartD3({ orderBook, height = 200, markPrice, mode:
     // Bids come pre-sorted DESCENDING (best bid at index 0).
     // Accumulate from best bid outward, then reverse to get ascending price
     // order (low price → bestBid) so D3 can draw left-to-right correctly.
-    const bidFiltered = book.bids.filter((l) => l.price >= lo && l.price <= hi);
+    const bidFiltered = book.bids.filter((l) =>
+      Number.isFinite(l.price) &&
+      Number.isFinite(l.quantity) &&
+      l.price >= lo &&
+      l.price <= hi
+    );
     const bidCum = [];
     {
       let cum = 0;
@@ -73,7 +78,12 @@ export default function DepthChartD3({ orderBook, height = 200, markPrice, mode:
 
     // Asks come pre-sorted ASCENDING (best ask at index 0).
     // Accumulate left → right: bestAsk has lowest cumulative, edge has highest.
-    const askFiltered = book.asks.filter((l) => l.price >= lo && l.price <= hi);
+    const askFiltered = book.asks.filter((l) =>
+      Number.isFinite(l.price) &&
+      Number.isFinite(l.quantity) &&
+      l.price >= lo &&
+      l.price <= hi
+    );
     const askCum = [];
     {
       let cum = 0;
@@ -84,8 +94,8 @@ export default function DepthChartD3({ orderBook, height = 200, markPrice, mode:
 
     const totalWidth = containerRef.current.clientWidth || 200;
     const margin     = { top: 10, right: 45, bottom: 28, left: 55 };
-    const innerW     = totalWidth - margin.left - margin.right;
-    const innerH     = height - margin.top - margin.bottom;
+    const innerW     = Math.max(totalWidth - margin.left - margin.right, 1);
+    const innerH     = Math.max(height - margin.top - margin.bottom, 1);
 
     svg.attr('width', totalWidth).attr('height', height);
 
@@ -96,13 +106,13 @@ export default function DepthChartD3({ orderBook, height = 200, markPrice, mode:
     // Bid: transparent on far left, solid green near bestBid (right side of bid area)
     const bidGrad = defs.append('linearGradient')
       .attr('id', `${gid}-bid`).attr('x1', '0%').attr('x2', '100%');
-    bidGrad.append('stop').attr('offset', '0%')  .attr('stop-color', '#22C55E').attr('stop-opacity', 0.04);
+    bidGrad.append('stop').attr('offset', '0%').attr('stop-color', '#22C55E').attr('stop-opacity', 0.04);
     bidGrad.append('stop').attr('offset', '100%').attr('stop-color', '#22C55E').attr('stop-opacity', 0.38);
 
     // Ask: solid red near bestAsk (left side of ask area), transparent on far right
     const askGrad = defs.append('linearGradient')
       .attr('id', `${gid}-ask`).attr('x1', '0%').attr('x2', '100%');
-    askGrad.append('stop').attr('offset', '0%')  .attr('stop-color', '#EF4444').attr('stop-opacity', 0.38);
+    askGrad.append('stop').attr('offset', '0%').attr('stop-color', '#EF4444').attr('stop-opacity', 0.38);
     askGrad.append('stop').attr('offset', '100%').attr('stop-color', '#EF4444').attr('stop-opacity', 0.04);
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
@@ -134,18 +144,18 @@ export default function DepthChartD3({ orderBook, height = 200, markPrice, mode:
     // curveStepBefore: vertical step drawn BEFORE each data point → correct
     // staircase shape where each price level's full qty is visible
     g.append('path').datum(bidCum)
-      .attr('d', d3.area().x((d) => xScale(d.price)).y0(innerH).y1((d) => yScale(d.cum)).curve(d3.curveStepBefore))
+      .attr('d', d3.area().defined((d) => Number.isFinite(d.price) && Number.isFinite(d.cum)).x((d) => xScale(d.price)).y0(innerH).y1((d) => yScale(d.cum)).curve(d3.curveStepBefore))
       .attr('fill', `url(#${gid}-bid)`);
     g.append('path').datum(bidCum)
-      .attr('d', d3.line().x((d) => xScale(d.price)).y((d) => yScale(d.cum)).curve(d3.curveStepBefore))
+      .attr('d', d3.line().defined((d) => Number.isFinite(d.price) && Number.isFinite(d.cum)).x((d) => xScale(d.price)).y((d) => yScale(d.cum)).curve(d3.curveStepBefore))
       .attr('fill', 'none').attr('stroke', '#22C55E').attr('stroke-width', 1.5);
 
     // ── Ask area & line ───────────────────────────────────────────────────────
     g.append('path').datum(askCum)
-      .attr('d', d3.area().x((d) => xScale(d.price)).y0(innerH).y1((d) => yScale(d.cum)).curve(d3.curveStepAfter))
+      .attr('d', d3.area().defined((d) => Number.isFinite(d.price) && Number.isFinite(d.cum)).x((d) => xScale(d.price)).y0(innerH).y1((d) => yScale(d.cum)).curve(d3.curveStepAfter))
       .attr('fill', `url(#${gid}-ask)`);
     g.append('path').datum(askCum)
-      .attr('d', d3.line().x((d) => xScale(d.price)).y((d) => yScale(d.cum)).curve(d3.curveStepAfter))
+      .attr('d', d3.line().defined((d) => Number.isFinite(d.price) && Number.isFinite(d.cum)).x((d) => xScale(d.price)).y((d) => yScale(d.cum)).curve(d3.curveStepAfter))
       .attr('fill', 'none').attr('stroke', '#EF4444').attr('stroke-width', 1.5);
 
     // ── Best bid / ask markers ────────────────────────────────────────────────

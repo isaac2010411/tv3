@@ -6,8 +6,6 @@
  * the OrderBook or Signal panels to re-render.
  */
 import { create } from 'zustand';
-import { appendCvdPoint } from '../../domain/cvd.model';
-import { buildFootprintDisplay, upsertFootprint } from '../../domain/footprint.model';
 
 export const EMPTY_ARRAY = Object.freeze([]);
 export const EMPTY_MAP = Object.freeze(new Map());
@@ -46,6 +44,21 @@ function eventKey(event) {
 
 function footprintInterval(event, display) {
   return event?.interval ?? event?.i ?? display?.interval ?? null;
+}
+
+function cvdPointFromBackend(event) {
+  if (!event) return null;
+  return event.point ?? event;
+}
+
+function upsertBackendFootprint(history, footprint, maxItems) {
+  const openTime = footprint?.openTime;
+  const next = Array.isArray(history) ? [...history] : [];
+  const idx = openTime == null ? -1 : next.findIndex((item) => item?.openTime === openTime);
+  if (idx >= 0) next[idx] = footprint;
+  else next.push(footprint);
+  next.sort((a, b) => Number(a?.openTime ?? 0) - Number(b?.openTime ?? 0));
+  return next.length > maxItems ? next.slice(-maxItems) : next;
 }
 
 export const useOrderFlowStore = create((set, get) => ({
@@ -119,14 +132,16 @@ export const useOrderFlowStore = create((set, get) => ({
 
   appendCvd(symbol, event, maxLength = 600) {
     if (!symbol || !event) return;
+    const point = cvdPointFromBackend(event);
+    if (!point) return;
     set((s) => {
       const prev = s.cvdHistoryBySymbol[symbol] ?? EMPTY_ARRAY;
       const last = prev[prev.length - 1];
-      if (last && eventKey(last) === eventKey(event)) return s;
+      if (last && eventKey(last) === eventKey(point)) return s;
       return {
         cvdHistoryBySymbol: {
           ...s.cvdHistoryBySymbol,
-          [symbol]: appendCvdPoint(prev, event, maxLength),
+          [symbol]: [...prev, point].slice(-maxLength),
         },
       };
     });
@@ -141,7 +156,7 @@ export const useOrderFlowStore = create((set, get) => ({
 
   setFootprintHistory(symbol, interval, rawList, maxItems = 200) {
     if (!symbol || !interval || !Array.isArray(rawList)) return;
-    const parsed = rawList.map(buildFootprintDisplay).filter(Boolean);
+    const parsed = rawList.filter(Boolean);
     set((s) => {
       const prevByInterval = s.footprintHistoryBySymbol[symbol] ?? new Map();
       const nextByInterval = new Map(prevByInterval);
@@ -157,8 +172,7 @@ export const useOrderFlowStore = create((set, get) => ({
 
   upsertFootprint(symbol, event, maxItems = 200) {
     if (!symbol || !event?.footprint) return;
-    const fp = buildFootprintDisplay(event.footprint);
-    if (!fp) return;
+    const fp = event.footprint;
     const interval = footprintInterval(event, fp);
     if (!interval) return;
 
@@ -170,7 +184,7 @@ export const useOrderFlowStore = create((set, get) => ({
 
       if (fp.isFinal) {
         const history = nextHistoryByInterval.get(interval) ?? EMPTY_ARRAY;
-        nextHistoryByInterval.set(interval, upsertFootprint(history, fp, maxItems));
+        nextHistoryByInterval.set(interval, upsertBackendFootprint(history, fp, maxItems));
         nextCurrentByInterval.delete(interval);
       } else {
         nextCurrentByInterval.set(interval, fp);

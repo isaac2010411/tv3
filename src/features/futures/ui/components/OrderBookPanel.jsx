@@ -51,6 +51,14 @@ function OBRow({ level, maxTotal, isBid, isBest, priceDec = 2 }) {
   );
 }
 
+function withDisplayTotals(levels) {
+  let total = 0;
+  return levels.map((level) => {
+    total += Number(level.quantity) || 0;
+    return { ...level, total };
+  });
+}
+
 /**
  * Order book panel with:
  *   – Depth selector (10 / 20 / 50)
@@ -60,7 +68,7 @@ function OBRow({ level, maxTotal, isBid, isBest, priceDec = 2 }) {
  *   – Never renders if orderBook is invalid
  *
  * Props:
- *   orderBook – processed OrderBook from processOrderBook()
+ *   orderBook – backend-enriched order book
  *   loading   – show skeleton
  *   depth     – controlled depth (default 15); overridden by internal selector
  */
@@ -71,11 +79,11 @@ function OrderBookPanel({ orderBook, loading, depth: depthProp = 15 }) {
 
   // asks displayed top→bottom worst→best (best ask is closest to the spread row)
   const asks = useMemo(
-    () => (book?.asks ?? []).slice(0, depth).reverse(),
+    () => withDisplayTotals(book?.asks ?? []).slice(0, depth).reverse(),
     [book, depth]
   );
   const bids = useMemo(
-    () => (book?.bids ?? []).slice(0, depth),
+    () => withDisplayTotals(book?.bids ?? []).slice(0, depth),
     [book, depth]
   );
 

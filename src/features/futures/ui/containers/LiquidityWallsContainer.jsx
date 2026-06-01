@@ -2,18 +2,15 @@ import React from 'react';
 import LiquidityWallsPanel from '../components/LiquidityWallsPanel';
 import {
   useOrderBookStore,
-  selectOrderBookBySymbol,
-  selectLocalBookBySymbol,
+  selectBookMetricsBySymbol,
 } from '../../application/stores/orderBookStore';
 
 function LiquidityWallsContainer({ symbol, loading = false }) {
-  const localBook = useOrderBookStore(selectLocalBookBySymbol(symbol));
-  const partialBook = useOrderBookStore(selectOrderBookBySymbol(symbol));
-  const orderBook = localBook ?? partialBook;
+  const bookMetrics = useOrderBookStore(selectBookMetricsBySymbol(symbol));
 
   return (
     <LiquidityWallsPanel
-      orderBook={orderBook}
+      bookMetrics={bookMetrics}
       loading={loading}
     />
   );

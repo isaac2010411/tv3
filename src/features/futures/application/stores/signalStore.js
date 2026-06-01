@@ -48,6 +48,9 @@ export const useSignalStore = create((set) => ({
   /** { [symbol]: SpoofingCandidateEvent[] } */
   spoofingCandidatesBySymbol: {},
 
+  /** { [symbol]: DecisionTape | null } */
+  decisionTapeBySymbol: {},
+
   // ── actions ───────────────────────────────────────────────────────────────
 
   resetSymbol(symbol) {
@@ -58,6 +61,7 @@ export const useSignalStore = create((set) => ({
       signalUpdateBySymbol:        { ...s.signalUpdateBySymbol,        [symbol]: null },
       liquidityShiftsBySymbol:     { ...s.liquidityShiftsBySymbol,     [symbol]: [] },
       spoofingCandidatesBySymbol:  { ...s.spoofingCandidatesBySymbol,  [symbol]: [] },
+      decisionTapeBySymbol:        { ...s.decisionTapeBySymbol,        [symbol]: null },
     }));
   },
 
@@ -70,7 +74,8 @@ export const useSignalStore = create((set) => ({
       const u = { ...s.signalUpdateBySymbol };       delete u[symbol];
       const l = { ...s.liquidityShiftsBySymbol };    delete l[symbol];
       const sp = { ...s.spoofingCandidatesBySymbol }; delete sp[symbol];
-      return { signalUpdateBySymbol: u, liquidityShiftsBySymbol: l, spoofingCandidatesBySymbol: sp };
+      const dt = { ...s.decisionTapeBySymbol };      delete dt[symbol];
+      return { signalUpdateBySymbol: u, liquidityShiftsBySymbol: l, spoofingCandidatesBySymbol: sp, decisionTapeBySymbol: dt };
     });
   },
 
@@ -108,6 +113,13 @@ export const useSignalStore = create((set) => ({
       };
     });
   },
+
+  setDecisionTape(symbol, decisionTape) {
+    if (!symbol) return;
+    set((s) => ({
+      decisionTapeBySymbol: { ...s.decisionTapeBySymbol, [symbol]: decisionTape },
+    }));
+  },
 }));
 
 // ── selectors ────────────────────────────────────────────────────────────────
@@ -118,3 +130,5 @@ export const selectLiquidityShiftsBySymbol = (symbol) => (s) =>
   s.liquidityShiftsBySymbol[symbol] ?? EMPTY_ARRAY;
 export const selectSpoofingCandidatesBySymbol = (symbol) => (s) =>
   s.spoofingCandidatesBySymbol[symbol] ?? EMPTY_ARRAY;
+export const selectDecisionTapeBySymbol = (symbol) => (s) =>
+  s.decisionTapeBySymbol[symbol] ?? null;

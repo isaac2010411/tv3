@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client'
-import { FUTURES_SOCKET_COMMANDS } from './futuresSocketEvents'
+import { FUTURES_SOCKET_COMMANDS, FUTURES_SOCKET_EVENTS } from './futuresSocketEvents'
 
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000'
 const ALLOW_POLLING_FALLBACK = String(process.env.REACT_APP_SOCKET_ALLOW_POLLING || '').toLowerCase() === 'true'
@@ -105,6 +105,27 @@ export function getConnectionStatus() {
   if (!socket) return 'disconnected'
   if (socket.connected) return 'connected'
   return 'connecting'
+}
+
+export function getSocketDebugSnapshot() {
+  if (!socket) {
+    return {
+      connected: false,
+      id: null,
+      listeners: {},
+    }
+  }
+
+  const listeners = Object.values(FUTURES_SOCKET_EVENTS).reduce((acc, event) => {
+    acc[event] = typeof socket.listeners === 'function' ? socket.listeners(event).length : 0
+    return acc
+  }, {})
+
+  return {
+    connected: socket.connected,
+    id: socket.id ?? null,
+    listeners,
+  }
 }
 
 /**

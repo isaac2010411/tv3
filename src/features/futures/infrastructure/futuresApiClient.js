@@ -40,7 +40,7 @@ export async function fetchCandles(symbol, interval = '1m', limit = 200) {
 
 /**
  * Fetches approximate footprint candle history built from kline taker-buy data.
- * Returns an array of footprint plain objects ready for buildFootprintDisplay().
+ * Returns an array of backend-enriched footprint plain objects.
  * @param {string} symbol
  * @param {string} interval  e.g. "1m", "5m"
  * @param {number} limit

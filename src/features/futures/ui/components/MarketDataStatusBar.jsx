@@ -9,32 +9,21 @@ import LatencyStatusBadge from './LatencyStatusBadge'
 const MAX_STALE_MS = 2000
 const MAX_STALE_WARN = 5000
 
-export default function MarketDataStatusBar({ connectionStatus = 'disconnected', health = {}, orderBook, symbol }) {
+export default function MarketDataStatusBar({ connectionStatus = 'disconnected', health = {}, symbol }) {
   const [ageMs, setAgeMs] = useState(null)
   const lastUpdateRef = useRef(Date.now())
   const healthRef = useRef(health)
   useEffect(() => { healthRef.current = health }, [health])
-  // Only the *validity* of the top-of-book is relevant for marking a fresh
   // tick — the `orderBook` object itself is a new reference on every depth
   // update, which previously caused this effect to reset `lastUpdateRef`
   // every few ms and made the chip flicker Live ↔ Stale ↔ Degraded forever.
-  const bookValid = Boolean(orderBook?.isValidTopOfBook)
-
   useEffect(() => {
     // Prefer the backend timestamp when available — that is the canonical
     // freshness signal and updates at a sane cadence (no per-tick churn).
     if (health?.lastOrderBookAt) {
       lastUpdateRef.current = health.lastOrderBookAt
-      return
     }
-    // Local fallback: bump only when the book first becomes valid (or
-    // becomes valid again after being invalid). Subsequent depth updates
-    // do not re-trigger this effect because we depend on `bookValid`, not
-    // on the `orderBook` reference.
-    if (bookValid) {
-      lastUpdateRef.current = Date.now()
-    }
-  }, [health?.lastOrderBookAt, bookValid])
+  }, [health?.lastOrderBookAt])
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -52,7 +41,7 @@ export default function MarketDataStatusBar({ connectionStatus = 'disconnected',
 
   const isConnected = connectionStatus === 'connected'
   const isConnecting = connectionStatus === 'connecting'
-  const bookSynced = health.bookSynced ?? orderBook?.isValidTopOfBook ?? false
+  const bookSynced = health.bookSynced ?? false
   const age = ageMs ?? health.lastUpdateAgeMs ?? null
   const reconnects = health.wsReconnectCount ?? 0
   const gapCount = health.gapCount ?? 0

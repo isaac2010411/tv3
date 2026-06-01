@@ -41,6 +41,8 @@ const POPUP_TRIGGER_STATES = new Set([
   SIGNAL_STATES.INVALIDATED,
 ])
 
+const POPUP_AUTO_CLOSE_MS = 3_000
+
 const DEFAULT_ENGINE_RESULT = Object.freeze({
   state: SIGNAL_STATES.IDLE,
   prevState: null,
@@ -201,6 +203,20 @@ export function useSignalEngine(symbol, _interval = '1m') {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineResult.state, engineResult.stateChanged, engineResult.activeSignal?.id, engineResult.autoExecution?.mode])
 
+  // Auto-close signal popups quickly so they never remain on screen too long.
+  useEffect(() => {
+    if (!isPopupOpen) return undefined
+
+    const timeoutId = window.setTimeout(() => {
+      setIsPopupOpen(false)
+      setPopupSignal(null)
+      setPopupState(null)
+      setPopupAutoExecution(null)
+    }, POPUP_AUTO_CLOSE_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [isPopupOpen, popupSignal?.id, popupState])
+
   // ── Accept: open local position, close popup, notify backend ─────────────
   const acceptSignal = useCallback(() => {
     // Use popupState (captured when popup opened), NOT the live engineResult.state.
@@ -220,7 +236,7 @@ export function useSignalEngine(symbol, _interval = '1m') {
     }
 
     const direction = state === SIGNAL_STATES.LONG_ENTRY_SIGNAL ? 'LONG' : 'SHORT'
-    // Prefer the signal captured when popup opened; fall back to live signal
+    // Prefer the signal captured when popup opened; otherwise use live signal.
     const signal = popupSignal ?? engineResult.activeSignal ?? engineResult.signal
     const entryPrice = signal?.risk?.entryPrice ?? currentPrice ?? 0
     const signalId = signal?.id ?? null

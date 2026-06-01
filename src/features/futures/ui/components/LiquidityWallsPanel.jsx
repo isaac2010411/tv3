@@ -4,30 +4,31 @@ import {
   Chip, Skeleton, Typography, Box,
 } from '@mui/material';
 import LayersIcon from '@mui/icons-material/Layers';
-import { detectWalls } from '../../domain/orderbook.model';
 
 function formatQty(value) {
   const n = Number(value);
-  if (!Number.isFinite(n)) return '—';
+  if (!Number.isFinite(n)) return '-';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(2)}K`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
   return n.toFixed(2);
 }
 
-/**
- * Detects large individual levels (liquidity walls) on each side of the book.
- * Uses the same 5× median algorithm as the backend and ScalpingDecisionRibbon
- * so both panels agree on what constitutes a wall.
- * Rendered without Card wrapper — used inside the left sidebar.
- */
-function LiquidityWallsPanel({ orderBook, loading, multiplier = 5 }) {
+function normalizeWall(wall) {
+  if (!wall) return null;
+  const price = Number(wall.price);
+  const quantity = Number(wall.quantity ?? wall.qty);
+  if (!Number.isFinite(price) || !Number.isFinite(quantity)) return null;
+  return { ...wall, price, quantity };
+}
+
+function LiquidityWallsPanel({ bookMetrics, loading }) {
   const walls = useMemo(() => {
-    const { bidWalls, askWalls } = detectWalls(orderBook, { multiplier });
+    const backendWalls = bookMetrics?.walls ?? {};
     return {
-      bids: [...bidWalls].sort((a, b) => b.quantity - a.quantity).slice(0, 5),
-      asks: [...askWalls].sort((a, b) => b.quantity - a.quantity).slice(0, 5),
+      bids: (backendWalls.bidWalls ?? []).map(normalizeWall).filter(Boolean).slice(0, 5),
+      asks: (backendWalls.askWalls ?? []).map(normalizeWall).filter(Boolean).slice(0, 5),
     };
-  }, [orderBook, multiplier]);
+  }, [bookMetrics]);
 
   const sectionLabel = (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}>
@@ -48,7 +49,7 @@ function LiquidityWallsPanel({ orderBook, loading, multiplier = 5 }) {
     <Box>
       {sectionLabel}
       {isEmpty ? (
-        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>No walls detected ({multiplier}× median)</Typography>
+        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>No backend walls</Typography>
       ) : (
         <Table size="small" sx={{ '& td,th': { px: 0.5 } }}>
           <TableHead>

@@ -25,10 +25,10 @@ export default function ImbalanceTimeseriesD3({ imbalanceHistory = [], height = 
     const pts = imbalanceHistory.filter((point) => Number.isFinite(point?.time) && Number.isFinite(point?.value));
     if (pts.length < 2) return;
 
-    const totalWidth = containerRef.current.clientWidth;
+    const totalWidth = containerRef.current.clientWidth || 200;
     const margin     = { top: 10, right: 55, bottom: 24, left: 55 };
-    const innerW     = totalWidth - margin.left - margin.right;
-    const innerH     = height - margin.top - margin.bottom;
+    const innerW     = Math.max(totalWidth - margin.left - margin.right, 1);
+    const innerH     = Math.max(height - margin.top - margin.bottom, 1);
 
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
@@ -63,6 +63,7 @@ export default function ImbalanceTimeseriesD3({ imbalanceHistory = [], height = 
 
     // ── Positive area (bids > asks) ────────────────────────────────────────
     const positiveArea = d3.area()
+      .defined((p) => Number.isFinite(p.time) && Number.isFinite(p.value))
       .x((p) => xScale(p.time))
       .y0(yScale(0))
       .y1((p) => yScale(Math.max(0, p.value)))
@@ -76,6 +77,7 @@ export default function ImbalanceTimeseriesD3({ imbalanceHistory = [], height = 
 
     // ── Negative area (asks > bids) ────────────────────────────────────────
     const negativeArea = d3.area()
+      .defined((p) => Number.isFinite(p.time) && Number.isFinite(p.value))
       .x((p) => xScale(p.time))
       .y0(yScale(0))
       .y1((p) => yScale(Math.min(0, p.value)))
@@ -99,6 +101,7 @@ export default function ImbalanceTimeseriesD3({ imbalanceHistory = [], height = 
       .datum(emaPoints)
       .attr('d',
         d3.line()
+          .defined((p) => Number.isFinite(p.time) && Number.isFinite(p.ema))
           .x((p) => xScale(p.time))
           .y((p) => yScale(p.ema))
           .curve(d3.curveMonotoneX)

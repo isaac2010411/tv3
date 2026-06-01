@@ -5,9 +5,12 @@ export const FUTURES_SOCKET_EVENTS = {
   MARKET_TICKER: 'futures:market:ticker',
   MARKET_MARK_PRICE: 'futures:market:markPrice',
   MARKET_CANDLE: 'futures:market:candle',
+  MARKET_INDICATORS: 'futures:market:indicators',
+  SESSION_CANDLE_SNAPSHOT: 'futures:session:candle:snapshot',
 
   BOOK_PARTIAL: 'futures:book:partial',
   BOOK_LOCAL: 'futures:book:local',
+  BOOK_METRICS: 'futures:book:metrics',
   BOOK_HEALTH: 'futures:book:health',
 
   TRADE_AGG: 'futures:trade:agg',
@@ -20,6 +23,7 @@ export const FUTURES_SOCKET_EVENTS = {
   SPOOFING_CANDIDATE: 'futures:spoofing:candidate',
 
   SIGNAL_UPDATE: 'futures:signal:update',
+  DECISION_TAPE: 'futures:decision:tape',
 
   PAPER_TRADE_OPENED: 'futures:paperTrade:opened',
   PAPER_TRADE_UPDATED: 'futures:paperTrade:updated',

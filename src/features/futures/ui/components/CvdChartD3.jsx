@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { Box } from '@mui/material';
 import * as d3 from 'd3';
-import { buildCvdBars, isBullishDivergence, isBearishDivergence } from '../../domain/cvd.model';
 import { sanitizeCvdHistory } from '../../utils/marketDataGuards';
 
 /**
@@ -9,7 +8,6 @@ import { sanitizeCvdHistory } from '../../utils/marketDataGuards';
  *
  * Bars: each 1-second bucket, colored green (positive delta) or red (negative).
  * Line: the running CVD value across all bars (secondary right axis).
- * Divergence: ↑/↓ annotation when a divergence pattern is detected.
  *
  * Props:
  *   cvdHistory  – array of CvdPoint from useCvdData
@@ -37,13 +35,23 @@ export default function CvdChartD3({ cvdHistory = [], height = 200 }) {
     }
 
     const margin = { top: 10, right: 55, bottom: 24, left: 55 };
-    const innerW = totalWidth - margin.left - margin.right;
-    const innerH = height - margin.top - margin.bottom;
+    const innerW = Math.max(totalWidth - margin.left - margin.right, 1);
+    const innerH = Math.max(height - margin.top - margin.bottom, 1);
 
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-    const bars = buildCvdBars(cleanHistory, 1000);
-    if (bars.length === 0) return;
+    const bars = cleanHistory
+      .map((point) => ({
+        time: Number(point.time),
+        delta: Number(point.delta),
+        close: Number(point.cvd),
+      }))
+      .filter((point) =>
+        Number.isFinite(point.time) &&
+        Number.isFinite(point.delta) &&
+        Number.isFinite(point.close)
+      );
+    if (bars.length < 2) return;
 
     // ── Scales ────────────────────────────────────────────────────────────────
     const xScale = d3.scaleBand()
@@ -97,6 +105,7 @@ export default function CvdChartD3({ cvdHistory = [], height = 200 }) {
       .datum(bars)
       .attr('d',
         d3.line()
+          .defined((b) => Number.isFinite(b.close))
           .x((_, i) => xScale(i) + xScale.bandwidth() / 2)
           .y((b) => yCvd(b.close))
           .curve(d3.curveMonotoneX)
@@ -105,19 +114,6 @@ export default function CvdChartD3({ cvdHistory = [], height = 200 }) {
       .attr('stroke', lineColor)
       .attr('stroke-width', 1.5)
       .attr('opacity', 0.9);
-
-    // ── Divergence annotation ─────────────────────────────────────────────────
-    const bullDiv = isBullishDivergence(cleanHistory);
-    const bearDiv = isBearishDivergence(cleanHistory);
-    if (bullDiv || bearDiv) {
-      g.append('text')
-        .attr('x', innerW - 4)
-        .attr('y', 14)
-        .attr('text-anchor', 'end')
-        .attr('font-size', 11)
-        .attr('fill', bullDiv ? '#4ADE80' : '#F87171')
-        .text(bullDiv ? '↑ Bullish Div' : '↓ Bearish Div');
-    }
 
     // ── Axes ──────────────────────────────────────────────────────────────────
     g.append('g')

@@ -19,8 +19,8 @@ import {
  * @param {string} symbol
  * @param {string} interval  active timeframe (must be a single TF)
  * @returns {{
- *   footprints:        Map<string, import('../domain/footprint.model').FootprintDisplay[]>,
- *   currentFootprints: Map<string, import('../domain/footprint.model').FootprintDisplay>,
+ *   footprints:        Map<string, object[]>,
+ *   currentFootprints: Map<string, object>,
  * }}
  */
 export function useFootprintCandles(symbol, interval) {

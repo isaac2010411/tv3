@@ -232,7 +232,7 @@ export default function FootprintCandleD3({ footprints = [], interval = '', heig
             .attr('fill', theme.palette.error.light)
             .text(fmtVol(lvl.sellVol));
         } else if (candleW >= 28 && levelH >= 6 && Math.abs(lvl.delta) > 0) {
-          // Fallback: compact delta centred
+          // Compact delta label for narrow cells.
           content.append('text')
             .attr('x', cx + candleW / 2)
             .attr('y', y + levelH / 2 + 3)

@@ -2,18 +2,15 @@ import React from 'react';
 import OrderBookImbalance from '../components/OrderBookImbalance';
 import {
   useOrderBookStore,
-  selectOrderBookBySymbol,
-  selectLocalBookBySymbol,
+  selectBookMetricsBySymbol,
 } from '../../application/stores/orderBookStore';
 
 function OrderBookImbalanceContainer({ symbol, loading = false }) {
-  const localBook = useOrderBookStore(selectLocalBookBySymbol(symbol));
-  const partialBook = useOrderBookStore(selectOrderBookBySymbol(symbol));
-  const orderBook = localBook ?? partialBook;
+  const bookMetrics = useOrderBookStore(selectBookMetricsBySymbol(symbol));
 
   return (
     <OrderBookImbalance
-      orderBook={orderBook}
+      bookMetrics={bookMetrics}
       loading={loading}
     />
   );

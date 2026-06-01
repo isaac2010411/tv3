@@ -86,10 +86,14 @@ export default function PortfolioSummaryCard() {
   // Backend-tracked paper account: starting cap (default $10k) + cumulative
   // realized PnL replayed from Mongo on boot. Falls back to the live in-store
   // realized PnL if the snapshot hasn't arrived yet (e.g. first paint).
+  const backendPaperSummary = snapshot?.paperSummary ?? null
   const paperAccount = snapshot?.paper ?? null
-  const paperStartingEquity = paperAccount?.startingEquity ?? 10_000
-  const paperRealizedToDate = paperAccount?.realizedToDate ?? paperStats.realized
-  const paperEquity = paperStartingEquity + paperRealizedToDate + paperStats.unrealized
+  const paperStartingEquity = backendPaperSummary?.startingEquity ?? paperAccount?.startingEquity ?? 10_000
+  const paperRealizedToDate = backendPaperSummary?.realizedPnl ?? paperAccount?.realizedToDate ?? paperStats.realized
+  const paperEquity = backendPaperSummary?.equity ?? (paperStartingEquity + paperRealizedToDate + paperStats.unrealized)
+  const paperOpenCount = backendPaperSummary?.openCount ?? paperStats.open
+  const paperUnrealized = backendPaperSummary?.unrealizedPnl ?? paperStats.unrealized
+  const paperWinRate = backendPaperSummary?.winRate ?? paperStats.winRate
   const paperEquityColor = paperEquity >= paperStartingEquity ? 'success.main' : 'error.main'
 
   return (
@@ -110,10 +114,10 @@ export default function PortfolioSummaryCard() {
             title='Paper'
           >
             <MetricCell label='Equity' value={fmt(paperEquity)} color={paperEquityColor} />
-            <MetricCell label='Pos' value={paperStats.open} />
-            <MetricCell label='uPnL' value={fmtPnl(paperStats.unrealized)} color={pnlColor(paperStats.unrealized)} />
+            <MetricCell label='Pos' value={paperOpenCount} />
+            <MetricCell label='uPnL' value={fmtPnl(paperUnrealized)} color={pnlColor(paperUnrealized)} />
             <MetricCell label='rPnL' value={fmtPnl(paperRealizedToDate)} color={pnlColor(paperRealizedToDate)} />
-            <MetricCell label='Win%' value={`${paperStats.winRate.toFixed(0)}%`} />
+            <MetricCell label='Win%' value={`${Number(paperWinRate).toFixed(0)}%`} />
           </Section>
         </Stack>
         {exposure?.exposureBySymbol && Object.keys(exposure.exposureBySymbol).length > 0 && (

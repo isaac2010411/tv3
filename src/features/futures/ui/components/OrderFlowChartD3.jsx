@@ -9,11 +9,13 @@ const AXIS_REFRESH_MS = 500;
 function buildPoints(trades) {
   const recent = [...trades].slice(0, MAX_POINTS).reverse();
   let delta = 0;
-  return recent.map((t) => {
+  return recent.flatMap((t) => {
     const vol = Number.parseFloat(t.quantity ?? t.qty ?? 0);
+    const time = Number(t.time ?? t.timestamp ?? 0);
+    if (!Number.isFinite(vol) || vol <= 0 || !Number.isFinite(time)) return [];
     const isBuy = t.isBuyerMaker === false;
     delta += isBuy ? vol : -vol;
-    return { delta, isBuy, time: +(t.time ?? t.timestamp ?? 0) };
+    return { delta, isBuy, time };
   });
 }
 
@@ -78,12 +80,14 @@ export default function OrderFlowChartD3({ trades = [], height = 180 }) {
     const deltaColor = lastDelta >= 0 ? '#22C55E' : '#EF4444';
 
     const area = d3.area()
+      .defined((d) => Number.isFinite(d.delta))
       .x((_, i) => xScale(i))
       .y0(yScale(0))
       .y1((d) => yScale(d.delta))
       .curve(d3.curveMonotoneX);
 
     const line = d3.line()
+      .defined((d) => Number.isFinite(d.delta))
       .x((_, i) => xScale(i))
       .y((d) => yScale(d.delta))
       .curve(d3.curveMonotoneX);

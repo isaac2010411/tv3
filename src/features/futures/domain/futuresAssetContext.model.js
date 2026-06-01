@@ -1,5 +1,3 @@
-import { processOrderBook } from './orderbook.model';
-
 /**
  * @typedef {Object} FuturesAssetContext
  * @property {string} symbol
@@ -82,19 +80,8 @@ export function normalizeServerContext(raw) {
     volume:             t24.volume                 ?? 0,
     openInterest:       oi.openInterest            ?? 0,
     tradingRules:       raw.tradingRules           ?? null,
-    orderBook:          _processRawOrderBook(raw.orderbook),
+    orderBook:          raw.orderbook ?? null,
     positions:          account.positions          ?? [],
     openOrders:         account.openOrders         ?? [],
   };
-}
-
-/**
- * Converts the raw server OrderBook (bids/asks with {price, qty} Decimal strings)
- * into the processed shape { bids, asks } with { price, quantity, total } numbers.
- * Returns null if the input is absent.
- * @param {object|null} raw
- */
-function _processRawOrderBook(raw) {
-  if (!raw) return null;
-  return processOrderBook(raw.bids ?? [], raw.asks ?? [], raw.lastUpdateId ?? 0);
 }

@@ -3,7 +3,6 @@ import { Box, ToggleButton, ToggleButtonGroup } from '@mui/material'
 import * as d3 from 'd3'
 import CandleCountdownTimer from './CandleCountdownTimer'
 import { useRealtimeMetricsStore } from '../../observability/realtimeMetricsStore'
-import { computeEMASeries, computeRSISeries, computeMACDSeries } from '../../utils/indicators'
 
 const MARGIN = { top: 10, right: 78, bottom: 40, left: 10 }
 const VOL_H = 48
@@ -36,6 +35,51 @@ function ensureLayer(root, className) {
   return root.selectAll(`g.${className}`).data([null]).join('g').attr('class', className)
 }
 
+function backendSeries(candles, key) {
+  const values = candles.map((c) => {
+    const ind = c?.indicators
+    const value =
+      key === 'ema20' ? ind?.ema20 :
+        key === 'ema50' ? ind?.ema50 :
+          key === 'rsi14' ? ind?.rsi14 :
+            key === 'macdLine' ? ind?.macd?.line :
+              key === 'macdSignal' ? ind?.macd?.signal :
+                key === 'macdHistogram' ? ind?.macd?.histogram :
+                  null
+    const n = Number(value)
+    return Number.isFinite(n) ? n : null
+  })
+  return values.some((v) => v != null) ? values : null
+}
+
+function compactNullableSeries(values) {
+  if (!Array.isArray(values)) return null
+  const first = values.findIndex((v) => v != null)
+  return first === -1 ? null : values.slice(first)
+}
+
+function isFinitePoint(point) {
+  return Number.isFinite(Number(point?.openTime)) && Number.isFinite(Number(point?.v))
+}
+
+function contiguousSegments(points) {
+  const segments = []
+  let current = []
+
+  for (const point of points) {
+    if (isFinitePoint(point)) {
+      current.push(point)
+      continue
+    }
+
+    if (current.length >= 2) segments.push(current)
+    current = []
+  }
+
+  if (current.length >= 2) segments.push(current)
+  return segments
+}
+
 function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UNKNOWN' }) {
   const svgRef = useRef(null)
   const containerRef = useRef(null)
@@ -45,6 +89,7 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
   const lastAxisRenderAtRef = useRef(0)
   const forceAxisRef = useRef(true)
   const widthRef = useRef(0)
+  const pointerInsideRef = useRef(false)
 
   // Mouse handler is bound once; reads live state via this ref so its closure
   // never retains `safeCandles` (avoids array retention across renders).
@@ -82,11 +127,28 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
   const lastCandle = safeCandles[safeCandles.length - 1]
   const intervalMs = useMemo(() => intervalToMs(interval), [interval])
 
-  const closes = useMemo(() => safeCandles.map((c) => +c.close), [safeCandles])
-  const ema20 = useMemo(() => (showEma ? computeEMASeries(closes, 20) : []), [closes, showEma])
-  const ema50 = useMemo(() => (showEma ? computeEMASeries(closes, 50) : []), [closes, showEma])
-  const rsi = useMemo(() => (showRsi ? computeRSISeries(closes, 14) : []), [closes, showRsi])
-  const macd = useMemo(() => (showMacd ? computeMACDSeries(closes) : null), [closes, showMacd])
+  const ema20 = useMemo(() => {
+    if (!showEma) return []
+    return compactNullableSeries(backendSeries(safeCandles, 'ema20')) ?? []
+  }, [safeCandles, showEma])
+  const ema50 = useMemo(() => {
+    if (!showEma) return []
+    return compactNullableSeries(backendSeries(safeCandles, 'ema50')) ?? []
+  }, [safeCandles, showEma])
+  const rsi = useMemo(() => {
+    if (!showRsi) return []
+    return compactNullableSeries(backendSeries(safeCandles, 'rsi14')) ?? []
+  }, [safeCandles, showRsi])
+  const macd = useMemo(() => {
+    if (!showMacd) return null
+    const line = compactNullableSeries(backendSeries(safeCandles, 'macdLine'))
+    const signal = compactNullableSeries(backendSeries(safeCandles, 'macdSignal'))
+    const histogram = compactNullableSeries(backendSeries(safeCandles, 'macdHistogram'))
+    if (line?.length && signal?.length && histogram?.length) {
+      return { macdLine: line, signalLine: signal, histogram, startIndex: safeCandles.length - histogram.length }
+    }
+    return null
+  }, [safeCandles, showMacd])
 
   const render = useCallback(() => {
     if (!svgRef.current || !containerRef.current || safeCandles.length < 2) return
@@ -195,10 +257,18 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
       const aligned = safeCandles
         .slice(safeCandles.length - series.length)
         .map((c, i) => ({ openTime: c.openTime, v: series[i] }))
-      const line = d3.line().x((d) => cx(d.openTime)).y((d) => yPrice(d.v))
+      const segments = contiguousSegments(aligned)
+      if (segments.length === 0) {
+        emaLayer.selectAll(`path.${klass}`).remove()
+        return
+      }
+      const line = d3.line()
+        .defined(isFinitePoint)
+        .x((d) => cx(d.openTime))
+        .y((d) => yPrice(Number(d.v)))
       emaLayer
         .selectAll(`path.${klass}`)
-        .data([aligned])
+        .data(segments)
         .join('path')
         .attr('class', klass)
         .attr('fill', 'none')
@@ -216,7 +286,11 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
       const aligned = safeCandles
         .slice(safeCandles.length - rsi.length)
         .map((c, i) => ({ openTime: c.openTime, v: rsi[i] }))
-      const line = d3.line().x((d) => cx(d.openTime)).y((d) => yRsi(d.v))
+      const rsiSegments = contiguousSegments(aligned)
+      const line = d3.line()
+        .defined(isFinitePoint)
+        .x((d) => cx(d.openTime))
+        .y((d) => yRsi(Number(d.v)))
 
       rsiLayer
         .selectAll('line.guide')
@@ -232,7 +306,7 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
 
       rsiLayer
         .selectAll('path.rsi')
-        .data([aligned])
+        .data(rsiSegments)
         .join('path')
         .attr('class', 'rsi')
         .attr('fill', 'none')
@@ -257,10 +331,15 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
     // ── MACD panel ─────────────────────────────────────────────────────────
     const macdLayer = ensureLayer(root, 'layer-macd').attr('transform', `translate(0,${macdTop})`)
     if (showMacd && macd && macd.histogram.length > 1) {
-      const maxAbs =
-        d3.max([...macd.macdLine, ...macd.signalLine, ...macd.histogram], (v) => Math.abs(v)) || 1
+      const finiteMacdValues = [...macd.macdLine, ...macd.signalLine, ...macd.histogram]
+        .map(Number)
+        .filter(Number.isFinite)
+      const maxAbs = d3.max(finiteMacdValues, (v) => Math.abs(v)) || 1
       const yMacd = d3.scaleLinear().domain([-maxAbs, maxAbs]).range([MACD_H, 0])
       const aligned = safeCandles.slice(safeCandles.length - macd.histogram.length)
+      const histData = aligned
+        .map((c, i) => ({ openTime: c.openTime, h: Number(macd.histogram[i]) }))
+        .filter((d) => Number.isFinite(Number(d.openTime)) && Number.isFinite(d.h))
 
       macdLayer
         .selectAll('line.zero')
@@ -275,7 +354,7 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
 
       macdLayer
         .selectAll('rect.hist')
-        .data(aligned.map((c, i) => ({ openTime: c.openTime, h: macd.histogram[i] })))
+        .data(histData)
         .join('rect')
         .attr('class', 'hist')
         .attr('x', (d) => xBand(d.openTime) ?? 0)
@@ -285,13 +364,16 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
         .attr('fill', (d) => (d.h >= 0 ? '#22C55E' : '#EF4444'))
         .attr('opacity', 0.55)
 
-      const macdData = aligned.map((c, i) => ({ openTime: c.openTime, v: macd.macdLine[i] }))
-      const sigData = aligned.map((c, i) => ({ openTime: c.openTime, v: macd.signalLine[i] }))
-      const macdLine = d3.line().x((d) => cx(d.openTime)).y((d) => yMacd(d.v))
+      const macdSegments = contiguousSegments(aligned.map((c, i) => ({ openTime: c.openTime, v: macd.macdLine[i] })))
+      const sigSegments = contiguousSegments(aligned.map((c, i) => ({ openTime: c.openTime, v: macd.signalLine[i] })))
+      const macdLine = d3.line()
+        .defined(isFinitePoint)
+        .x((d) => cx(d.openTime))
+        .y((d) => yMacd(Number(d.v)))
 
       macdLayer
         .selectAll('path.macd-line')
-        .data([macdData])
+        .data(macdSegments)
         .join('path')
         .attr('class', 'macd-line')
         .attr('fill', 'none')
@@ -301,7 +383,7 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
 
       macdLayer
         .selectAll('path.signal-line')
-        .data([sigData])
+        .data(sigSegments)
         .join('path')
         .attr('class', 'signal-line')
         .attr('fill', 'none')
@@ -379,19 +461,26 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
     if (root.select('.crosshair-v').empty()) {
       root.append('line')
         .attr('class', 'crosshair-v')
-        .attr('stroke', '#4B5563')
+        .attr('stroke', '#64748B')
+        .attr('stroke-opacity', 0.35)
         .attr('stroke-dasharray', '4,2')
         .style('pointer-events', 'none')
         .style('display', 'none')
       root.append('line')
         .attr('class', 'crosshair-h')
-        .attr('stroke', '#4B5563')
+        .attr('stroke', '#64748B')
+        .attr('stroke-opacity', 0.35)
         .attr('stroke-dasharray', '4,2')
         .style('pointer-events', 'none')
         .style('display', 'none')
     }
     root.select('.crosshair-v').attr('y1', 0).attr('y2', chartH)
     root.select('.crosshair-h').attr('x1', 0).attr('x2', innerW)
+    if (!pointerInsideRef.current) {
+      root.select('.crosshair-v').style('display', 'none')
+      root.select('.crosshair-h').style('display', 'none')
+      svg.select('g.tip-group').style('display', 'none')
+    }
 
     // Tip group (one-time create)
     if (svg.select('g.tip-group').empty()) {
@@ -418,6 +507,9 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
 
     if (!mouseBoundRef.current) {
       overlay
+        .on('mouseenter', () => {
+          pointerInsideRef.current = true
+        })
         .on('mousemove', function (event) {
           const v = viewRef.current
           const svgEl = svgRef.current
@@ -457,6 +549,7 @@ function CandleChartD3({ candles = [], interval = '', height = 340, symbol = 'UN
           tip.attr('transform', `translate(${tx},${ty})`).style('display', null)
         })
         .on('mouseleave', () => {
+          pointerInsideRef.current = false
           const svgEl = svgRef.current
           if (!svgEl) return
           const rootSel = d3.select(svgEl).select('g.root')

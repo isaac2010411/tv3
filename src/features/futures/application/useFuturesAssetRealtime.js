@@ -4,9 +4,9 @@ import {
   offEvent,
   onConnectionChange,
   getConnectionStatus,
+  getSocketDebugSnapshot,
 } from '../infrastructure/futuresSocketClient'
 import { FUTURES_SOCKET_EVENTS } from '../infrastructure/futuresSocketEvents'
-import { processOrderBook } from '../domain/orderbook.model'
 import { normalizeServerContext } from '../domain/futuresAssetContext.model'
 import { fetchCandles } from '../infrastructure/futuresApiClient'
 import { useRealtimeMetricsStore } from '../observability/realtimeMetricsStore'
@@ -78,8 +78,75 @@ function intervalToMs(interval) {
   return n * (units[m[2]] ?? 0)
 }
 
+function normalizeBookLevel(level) {
+  const price = Number(Array.isArray(level) ? level[0] : level?.price)
+  const quantity = Number(Array.isArray(level) ? level[1] : level?.quantity ?? level?.qty)
+  if (!Number.isFinite(price) || !Number.isFinite(quantity)) return null
+  return { price, quantity }
+}
+
+function trimLevels(levels, max = MAX_BOOK_LEVELS_IN_MEMORY) {
+  return Array.isArray(levels) ? levels.slice(0, max) : []
+}
+
+function trimFootprintLevels(footprint) {
+  if (!footprint || !Array.isArray(footprint.levels)) return footprint
+  if (footprint.levels.length <= MAX_FOOTPRINT_LEVELS_IN_MEMORY) return footprint
+  const pocIndex = footprint.levels.findIndex((level) => level?.isPoc)
+  if (pocIndex < 0) {
+    return { ...footprint, levels: footprint.levels.slice(-MAX_FOOTPRINT_LEVELS_IN_MEMORY) }
+  }
+  const half = Math.floor(MAX_FOOTPRINT_LEVELS_IN_MEMORY / 2)
+  const start = Math.max(0, pocIndex - half)
+  return { ...footprint, levels: footprint.levels.slice(start, start + MAX_FOOTPRINT_LEVELS_IN_MEMORY) }
+}
+
+function normalizeBackendBook(data) {
+  const metrics = data?.bookMetrics ?? null
+  const bestBid = Number(metrics?.bestBid ?? data?.bestBid)
+  const bestAsk = Number(metrics?.bestAsk ?? data?.bestAsk)
+  const spread = Number(metrics?.spread ?? data?.spread)
+  const spreadPct = Number(metrics?.spreadPct ?? data?.spreadPct)
+  const midPrice = Number(metrics?.midPrice ?? data?.midPrice)
+  const bids = trimLevels(data?.bids).map(normalizeBookLevel).filter(Boolean)
+  const asks = trimLevels(data?.asks).map(normalizeBookLevel).filter(Boolean)
+  const isValidTopOfBook = Boolean(
+    Number.isFinite(bestBid) &&
+    Number.isFinite(bestAsk) &&
+    bestAsk > bestBid
+  )
+
+  return {
+    ...data,
+    bids,
+    asks,
+    bestBid: Number.isFinite(bestBid) ? bestBid : null,
+    bestAsk: Number.isFinite(bestAsk) ? bestAsk : null,
+    spread: Number.isFinite(spread) ? spread : null,
+    spreadPct: Number.isFinite(spreadPct) ? spreadPct : null,
+    midPrice: Number.isFinite(midPrice) ? midPrice : null,
+    isValidTopOfBook,
+    bookMetrics: metrics,
+  }
+}
+
+function topOfBookFromMetrics(metrics) {
+  if (!metrics) return null
+  const bestBid = Number(metrics.bestBid)
+  const bestAsk = Number(metrics.bestAsk)
+  if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk) || bestAsk <= bestBid) return null
+  return {
+    bestBid,
+    bestAsk,
+    spread: metrics.spread,
+    spreadPct: metrics.spreadPct,
+    midPrice: metrics.midPrice,
+    isValidTopOfBook: true,
+  }
+}
+
 const METRIC_FLUSH_MS = 120
-const MAX_PENDING_TRADES = 60
+const MAX_PENDING_TRADES = 40
 const ORDERFLOW_FLUSH_MS = 250
 const MARKET_FRAME_FLUSH_MS = 250
 const MAX_EVENT_AGE_MS = 5_000
@@ -87,6 +154,13 @@ const MAX_TRADE_BATCH_AGE_MS = 5_000
 const CANDLE_RECOVERY_CHECK_MS = 5_000
 const CANDLE_RECOVERY_COOLDOWN_MS = 30_000
 const MIN_CANDLE_STALE_RECOVERY_MS = 90_000
+const MAX_BOOK_LEVELS_IN_MEMORY = 60
+const MAX_CANDLES_IN_MEMORY = 180
+const MAX_TRADES_IN_MEMORY = 120
+const MAX_CVD_POINTS_IN_MEMORY = 240
+const MAX_FOOTPRINTS_IN_MEMORY = 80
+const MAX_FOOTPRINT_LEVELS_IN_MEMORY = 80
+const DEBUG_REALTIME_MEMORY = String(process.env.REACT_APP_REALTIME_DEBUG_MEMORY || '').toLowerCase() === 'true'
 
 export function useFuturesAssetRealtime(
   symbol,
@@ -136,6 +210,7 @@ export function useFuturesAssetRealtime(
   const orderFlowFlushTimerRef = useRef(null)
   const marketFrameFlushTimerRef = useRef(null)
   const candleRecoveryTimerRef = useRef(null)
+  const memoryDebugTimerRef = useRef(null)
   const metricQueueRef = useRef(new Map())
   const metricFlushTimerRef = useRef(null)
 
@@ -188,19 +263,28 @@ export function useFuturesAssetRealtime(
 
     if (frame.ticker) useMarketDataStore.getState().setTicker(symbol, frame.ticker)
     if (frame.markPrice) useMarketDataStore.getState().setMarkPrice(symbol, frame.markPrice)
+    if (frame.indicators?.interval) useMarketDataStore.getState().setIndicators(symbol, frame.indicators.interval, frame.indicators)
     if (frame.footprint) {
       useOrderFlowStore.getState().setFootprint(symbol, frame.footprint)
-      useOrderFlowStore.getState().upsertFootprint(symbol, frame.footprint, 200)
+      useOrderFlowStore.getState().upsertFootprint(symbol, frame.footprint, MAX_FOOTPRINTS_IN_MEMORY)
     }
     if (frame.signalUpdate) useSignalStore.getState().setSignalUpdate(symbol, frame.signalUpdate)
+    if (frame.decisionTape) useSignalStore.getState().setDecisionTape(symbol, frame.decisionTape)
     if (frame.liquidityShift) useSignalStore.getState().prependLiquidityShift(symbol, frame.liquidityShift, 100)
     if (frame.spoofingCandidate) useSignalStore.getState().prependSpoofingCandidate(symbol, frame.spoofingCandidate, 50)
 
     if (frame.localBook) {
-      const processed = processOrderBook(frame.localBook.bids, frame.localBook.asks, frame.localBook.lastUpdateId)
-      if (processed.isValidTopOfBook) {
-        useOrderBookStore.getState().setLocalBook(symbol, processed)
+      const normalized = normalizeBackendBook(frame.localBook)
+      const topOfBook = topOfBookFromMetrics(normalized.bookMetrics) ?? {
+        bestBid: normalized.bestBid,
+        bestAsk: normalized.bestAsk,
+        spread: normalized.spread,
+        spreadPct: normalized.spreadPct,
+        midPrice: normalized.midPrice,
+        isValidTopOfBook: normalized.isValidTopOfBook,
       }
+      useOrderBookStore.getState().setOrderBook(symbol, normalized, topOfBook)
+      useOrderBookStore.getState().setLocalBook(symbol, normalized)
     }
 
     frame.candles.forEach(({ candle, maxLength }, interval) => {
@@ -220,15 +304,17 @@ export function useFuturesAssetRealtime(
     const frame = pendingFrameRef.current
     if (patch.ticker) frame.ticker = patch.ticker
     if (patch.markPrice) frame.markPrice = patch.markPrice
+    if (patch.indicators) frame.indicators = patch.indicators
     if (patch.footprint) frame.footprint = patch.footprint
     if (patch.signalUpdate) frame.signalUpdate = patch.signalUpdate
+    if (patch.decisionTape) frame.decisionTape = patch.decisionTape
     if (patch.liquidityShift) frame.liquidityShift = patch.liquidityShift
     if (patch.spoofingCandidate) frame.spoofingCandidate = patch.spoofingCandidate
     if (patch.localBook) frame.localBook = patch.localBook
     if (patch.candle?.interval && patch.candle?.payload) {
       frame.candles.set(patch.candle.interval, {
         candle: patch.candle.payload,
-        maxLength: patch.candle.maxLength ?? 500,
+        maxLength: patch.candle.maxLength ?? MAX_CANDLES_IN_MEMORY,
       })
     }
     scheduleMarketFrameFlush()
@@ -242,20 +328,10 @@ export function useFuturesAssetRealtime(
       const pendingBook = pendingOrderBookRef.current
       if (pendingBook) {
         pendingOrderBookRef.current = null
-        const processed = processOrderBook(pendingBook.bids, pendingBook.asks, pendingBook.lastUpdateId)
-        const topOfBook = processed.isValidTopOfBook
-          ? {
-              bestBid: processed.bestBid,
-              bestAsk: processed.bestAsk,
-              spread: processed.spread,
-              spreadPct: processed.spreadPct,
-              midPrice: processed.midPrice,
-              isValidTopOfBook: true,
-            }
-          : null
-        useOrderBookStore.getState().setOrderBook(symbol, processed, topOfBook)
+        const normalized = normalizeBackendBook(pendingBook)
+        useOrderBookStore.getState().setOrderBook(symbol, normalized, topOfBookFromMetrics(pendingBook.bookMetrics))
         useFuturesConnectionStore.getState().setHealth(symbol, {
-          bookSynced: processed.isValidTopOfBook,
+          bookSynced: normalized.isValidTopOfBook,
           lastUpdateAgeMs: 0,
         })
       }
@@ -266,13 +342,13 @@ export function useFuturesAssetRealtime(
     if (pendingTradesRef.current.length > 0) {
       const batch = pendingTradesRef.current.slice(-MAX_PENDING_TRADES)
       pendingTradesRef.current = []
-      useOrderFlowStore.getState().prependTrades(symbol, batch, 200)
+      useOrderFlowStore.getState().prependTrades(symbol, batch, MAX_TRADES_IN_MEMORY)
     }
 
     if (pendingCvdRef.current) {
       const cvdEvent = pendingCvdRef.current
       pendingCvdRef.current = null
-      useOrderFlowStore.getState().appendCvd(symbol, cvdEvent, 600)
+      useOrderFlowStore.getState().appendCvd(symbol, cvdEvent, MAX_CVD_POINTS_IN_MEMORY)
     }
   }
 
@@ -326,11 +402,16 @@ export function useFuturesAssetRealtime(
     useSignalStore.getState().resetSymbol(symbol)
     usePortfolioStore.getState().resetSymbol(symbol)
     usePaperTradeStore.getState().resetSymbol(symbol)
+    useRealtimeMetricsStore.getState().pruneSymbol(symbol)
     lastCandleEventRef.current = {}
     lastCandleOpenRef.current = {}
     lastCandleRecoveryAttemptRef.current = {}
     droppedRealtimeRef.current = { book: 0, trades: 0, cvd: 0, frame: 0 }
     pendingFrameRef.current = { candles: new Map() }
+    pendingOrderBookRef.current = null
+    pendingTradesRef.current = []
+    pendingCvdRef.current = null
+    metricQueueRef.current.clear()
 
     let cancelled = false
 
@@ -381,7 +462,16 @@ export function useFuturesAssetRealtime(
       if (isStaleEvent(data)) return metricDrop('book')
       metric('book.partial', data)
       pendingOrderBookRef.current = data
+      if (data?.bookMetrics) {
+        useOrderBookStore.getState().setBookMetrics(symbol, data.bookMetrics)
+      }
       scheduleOrderBookFlush()
+    }
+
+    const handleBookMetrics = (data) => {
+      if (!sameSymbol(data)) return
+      metric('book.metrics', data)
+      useOrderBookStore.getState().setBookMetrics(symbol, data)
     }
 
     const handleCandle = (data) => {
@@ -392,8 +482,37 @@ export function useFuturesAssetRealtime(
       metric(`market.candle.${interval}`, data)
       if (extractCandleOpenTime(candle) == null) return
       markCandleProgress(interval, candle, { touchHeartbeat: true })
+      if (data?.indicators) {
+        queueFramePatch({ indicators: data.indicators })
+      }
       const candleWithMeta = candle?._meta ? candle : { ...candle, _meta: data?._meta }
-      queueFramePatch({ candle: { interval, payload: candleWithMeta, maxLength: 500 } })
+      queueFramePatch({ candle: { interval, payload: candleWithMeta, maxLength: MAX_CANDLES_IN_MEMORY } })
+    }
+
+    const handleSessionCandleSnapshot = (data) => {
+      if (!sameSymbol(data)) return
+      const interval = data?.interval
+      if (!interval) return
+      metric(`session.candle.${interval}`, data)
+      if (data?.indicators) {
+        queueFramePatch({ indicators: { ...data.indicators, interval } })
+      }
+      if (data?.currentCandle) {
+        queueFramePatch({ candle: { interval, payload: data.currentCandle, maxLength: MAX_CANDLES_IN_MEMORY } })
+      } else if (data?.latestClosedCandle) {
+        queueFramePatch({ candle: { interval, payload: data.latestClosedCandle, maxLength: MAX_CANDLES_IN_MEMORY } })
+      }
+      if (data?.footprint) {
+        queueFramePatch({ footprint: { symbol, interval, footprint: trimFootprintLevels(data.footprint) } })
+      }
+    }
+
+    const handleIndicators = (data) => {
+      if (!sameSymbol(data)) return
+      const interval = data?.interval ?? data?.i
+      if (!interval) return
+      metric(`market.indicators.${interval}`, data)
+      queueFramePatch({ indicators: { ...data, interval } })
     }
 
     const handleMarkPrice = (data) => {
@@ -436,13 +555,37 @@ export function useFuturesAssetRealtime(
       if (!sameSymbol(data)) return
       if (isStaleEvent(data)) return metricDrop('frame')
       metric('orderflow.footprint', data)
-      queueFramePatch({ footprint: data })
+      queueFramePatch({
+        footprint: {
+          ...data,
+          footprint: data?.footprint ? trimFootprintLevels(data.footprint) : data?.footprint,
+        },
+      })
+    }
+
+    const handleFootprintInit = (data) => {
+      if (!sameSymbol(data)) return
+      const footprints = data?.footprints
+      if (!footprints || typeof footprints !== 'object') return
+      Object.entries(footprints).forEach(([interval, list]) => {
+        if (Array.isArray(list)) {
+          useOrderFlowStore.getState().setFootprintHistory(
+            symbol,
+            interval,
+            list.map(trimFootprintLevels),
+            MAX_FOOTPRINTS_IN_MEMORY,
+          )
+        }
+      })
     }
 
     const handleLocalBook = (data) => {
       if (!sameSymbol(data)) return
       if (isStaleEvent(data)) return metricDrop('book')
       metric('book.local', data)
+      if (data?.bookMetrics) {
+        useOrderBookStore.getState().setBookMetrics(symbol, data.bookMetrics)
+      }
       queueFramePatch({ localBook: data })
     }
 
@@ -482,6 +625,12 @@ export function useFuturesAssetRealtime(
       queueFramePatch({ signalUpdate: data })
     }
 
+    const handleDecisionTape = (data) => {
+      if (!sameSymbol(data)) return
+      metric('decision.tape', data)
+      queueFramePatch({ decisionTape: data })
+    }
+
     const handlePaperTradeOpened = (data) => {
       if (!sameSymbol(data)) return
       metric('paperTrade.opened', data)
@@ -504,16 +653,21 @@ export function useFuturesAssetRealtime(
     onEvent(FUTURES_SOCKET_EVENTS.MARKET_TICKER, handleTicker)
     onEvent(FUTURES_SOCKET_EVENTS.BOOK_PARTIAL, handleOrderBook)
     onEvent(FUTURES_SOCKET_EVENTS.BOOK_LOCAL, handleLocalBook)
+    onEvent(FUTURES_SOCKET_EVENTS.BOOK_METRICS, handleBookMetrics)
     onEvent(FUTURES_SOCKET_EVENTS.BOOK_HEALTH, handleBookHealth)
     onEvent(FUTURES_SOCKET_EVENTS.MARKET_CANDLE, handleCandle)
+    onEvent(FUTURES_SOCKET_EVENTS.MARKET_INDICATORS, handleIndicators)
+    onEvent(FUTURES_SOCKET_EVENTS.SESSION_CANDLE_SNAPSHOT, handleSessionCandleSnapshot)
     onEvent(FUTURES_SOCKET_EVENTS.MARKET_MARK_PRICE, handleMarkPrice)
     onEvent(FUTURES_SOCKET_EVENTS.TRADE_AGG, handleTrades)
     onEvent(FUTURES_SOCKET_EVENTS.ASSET_ERROR, handleError)
     onEvent(FUTURES_SOCKET_EVENTS.ORDERFLOW_CVD, handleCvd)
     onEvent(FUTURES_SOCKET_EVENTS.ORDERFLOW_FOOTPRINT, handleFootprint)
+    onEvent(FUTURES_SOCKET_EVENTS.ORDERFLOW_FOOTPRINT_INIT, handleFootprintInit)
     onEvent(FUTURES_SOCKET_EVENTS.LIQUIDITY_SHIFT, handleLiquidityShift)
     onEvent(FUTURES_SOCKET_EVENTS.SPOOFING_CANDIDATE, handleSpoofing)
     onEvent(FUTURES_SOCKET_EVENTS.SIGNAL_UPDATE, handleSignalUpdate)
+    onEvent(FUTURES_SOCKET_EVENTS.DECISION_TAPE, handleDecisionTape)
     onEvent(FUTURES_SOCKET_EVENTS.PAPER_TRADE_OPENED, handlePaperTradeOpened)
     onEvent(FUTURES_SOCKET_EVENTS.PAPER_TRADE_UPDATED, handlePaperTradeUpdated)
     onEvent(FUTURES_SOCKET_EVENTS.PAPER_TRADE_CLOSED, handlePaperTradeClosed)
@@ -541,6 +695,63 @@ export function useFuturesAssetRealtime(
       })
     }, CANDLE_RECOVERY_CHECK_MS)
 
+    if (DEBUG_REALTIME_MEMORY) {
+      memoryDebugTimerRef.current = setInterval(() => {
+        const market = useMarketDataStore.getState()
+        const orderBook = useOrderBookStore.getState()
+        const orderFlow = useOrderFlowStore.getState()
+        const signal = useSignalStore.getState()
+        const candles = market.candlesBySymbol?.[symbol] ?? {}
+        const footprints = orderFlow.footprintHistoryBySymbol?.[symbol] ?? new Map()
+        const localBook = orderBook.localBookBySymbol?.[symbol]
+        const domBook = orderBook.orderBookBySymbol?.[symbol]
+        const metrics = orderBook.bookMetricsBySymbol?.[symbol]
+        const heap = performance?.memory
+          ? {
+              usedMB: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024),
+              totalMB: Math.round(performance.memory.totalJSHeapSize / 1024 / 1024),
+              limitMB: Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024),
+            }
+          : null
+
+        // eslint-disable-next-line no-console
+        console.info('[realtime-memory]', {
+          symbol,
+          heap,
+          socket: getSocketDebugSnapshot(),
+          store: {
+            candles: Object.fromEntries(
+              Object.entries(candles).map(([interval, list]) => [interval, Array.isArray(list) ? list.length : 0]),
+            ),
+            orderBookLevels: {
+              bids: Array.isArray(domBook?.bids) ? domBook.bids.length : 0,
+              asks: Array.isArray(domBook?.asks) ? domBook.asks.length : 0,
+            },
+            localBookLevels: {
+              bids: Array.isArray(localBook?.bids) ? localBook.bids.length : 0,
+              asks: Array.isArray(localBook?.asks) ? localBook.asks.length : 0,
+            },
+            heatmapLevels: {
+              bids: Array.isArray(metrics?.heatmapSnapshot?.bids) ? metrics.heatmapSnapshot.bids.length : 0,
+              asks: Array.isArray(metrics?.heatmapSnapshot?.asks) ? metrics.heatmapSnapshot.asks.length : 0,
+            },
+            trades: orderFlow.recentTradesBySymbol?.[symbol]?.length ?? 0,
+            cvd: orderFlow.cvdHistoryBySymbol?.[symbol]?.length ?? 0,
+            footprints: footprints instanceof Map
+              ? Object.fromEntries(
+                  Array.from(footprints.entries()).map(([interval, list]) => [
+                    interval,
+                    Array.isArray(list) ? list.length : 0,
+                  ]),
+                )
+              : {},
+            liquidityShifts: signal.liquidityShiftsBySymbol?.[symbol]?.length ?? 0,
+            spoofingCandidates: signal.spoofingCandidatesBySymbol?.[symbol]?.length ?? 0,
+          },
+        })
+      }, 10_000)
+    }
+
     return () => {
       cancelled = true
       if (flushRafRef.current != null) {
@@ -563,6 +774,10 @@ export function useFuturesAssetRealtime(
         clearInterval(candleRecoveryTimerRef.current)
         candleRecoveryTimerRef.current = null
       }
+      if (memoryDebugTimerRef.current != null) {
+        clearInterval(memoryDebugTimerRef.current)
+        memoryDebugTimerRef.current = null
+      }
       metricQueueRef.current.clear()
       pendingOrderBookRef.current = null
       pendingTradesRef.current = []
@@ -573,16 +788,21 @@ export function useFuturesAssetRealtime(
       offEvent(FUTURES_SOCKET_EVENTS.MARKET_TICKER, handleTicker)
       offEvent(FUTURES_SOCKET_EVENTS.BOOK_PARTIAL, handleOrderBook)
       offEvent(FUTURES_SOCKET_EVENTS.BOOK_LOCAL, handleLocalBook)
+      offEvent(FUTURES_SOCKET_EVENTS.BOOK_METRICS, handleBookMetrics)
       offEvent(FUTURES_SOCKET_EVENTS.BOOK_HEALTH, handleBookHealth)
       offEvent(FUTURES_SOCKET_EVENTS.MARKET_CANDLE, handleCandle)
+      offEvent(FUTURES_SOCKET_EVENTS.MARKET_INDICATORS, handleIndicators)
+      offEvent(FUTURES_SOCKET_EVENTS.SESSION_CANDLE_SNAPSHOT, handleSessionCandleSnapshot)
       offEvent(FUTURES_SOCKET_EVENTS.MARKET_MARK_PRICE, handleMarkPrice)
       offEvent(FUTURES_SOCKET_EVENTS.TRADE_AGG, handleTrades)
       offEvent(FUTURES_SOCKET_EVENTS.ASSET_ERROR, handleError)
       offEvent(FUTURES_SOCKET_EVENTS.ORDERFLOW_CVD, handleCvd)
       offEvent(FUTURES_SOCKET_EVENTS.ORDERFLOW_FOOTPRINT, handleFootprint)
+      offEvent(FUTURES_SOCKET_EVENTS.ORDERFLOW_FOOTPRINT_INIT, handleFootprintInit)
       offEvent(FUTURES_SOCKET_EVENTS.LIQUIDITY_SHIFT, handleLiquidityShift)
       offEvent(FUTURES_SOCKET_EVENTS.SPOOFING_CANDIDATE, handleSpoofing)
       offEvent(FUTURES_SOCKET_EVENTS.SIGNAL_UPDATE, handleSignalUpdate)
+      offEvent(FUTURES_SOCKET_EVENTS.DECISION_TAPE, handleDecisionTape)
       offEvent(FUTURES_SOCKET_EVENTS.PAPER_TRADE_OPENED, handlePaperTradeOpened)
       offEvent(FUTURES_SOCKET_EVENTS.PAPER_TRADE_UPDATED, handlePaperTradeUpdated)
       offEvent(FUTURES_SOCKET_EVENTS.PAPER_TRADE_CLOSED, handlePaperTradeClosed)
