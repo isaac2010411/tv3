@@ -57,14 +57,7 @@ export default function FuturesAssetDashboard() {
             symbol={s.symbol}
             intervalIdx={s.intervalIdx}
             onIntervalChange={s.setIntervalIdx}
-            chartTab={s.chartTab}
-            onChartTabChange={s.setChartTab}
             interval={INTERVALS[s.intervalIdx]}
-            footprints={s.footprints}
-            currentFootprints={s.currentFootprints}
-            heatmapSnapshots={s.heatmapSnapshots}
-            heatmapMinutes={s.heatmapMinutes}
-            setHeatmapMinutes={s.setHeatmapMinutes}
           />
         }
         right={
@@ -79,7 +72,6 @@ export default function FuturesAssetDashboard() {
           <MarketFlowBottomSection
             symbol={s.symbol}
             activeInterval={s.activeInterval}
-            orderFlowPainted={s.orderFlowPainted}
             imbalanceHistory={s.imbalanceHistory}
             spoofingEvents={s.spoofingEvents}
             shiftEvents={s.shiftEvents}

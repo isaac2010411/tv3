@@ -17,10 +17,7 @@ import PaperPositionsTable from '../components/PaperPositionsTable'
 import SpoofingAlertsPanel from '../components/SpoofingAlertsPanel'
 import LiquidityShiftsPanel from '../components/LiquidityShiftsPanel'
 import MarketFlowStripWorkspace from '../workspaces/MarketFlowStripWorkspace'
-import {
-  usePaperTradeStore,
-  selectOpenPaperPositionsBySymbol,
-} from '../../application/stores/paperTradeStore'
+import { usePaperTradeStore, selectOpenPaperPositionsBySymbol } from '../../application/stores/paperTradeStore'
 
 const FLOW_TABS = [
   { label: 'Tape', icon: <FormatListBulletedIcon sx={{ fontSize: 13 }} /> },
