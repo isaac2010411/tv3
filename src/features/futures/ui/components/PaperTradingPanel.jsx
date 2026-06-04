@@ -5,7 +5,7 @@ import {
   selectOpenPaperPositionsBySymbol,
   selectClosedPaperPositionsBySymbol,
 } from '../../application/stores/paperTradeStore'
-import { fetchPaperPositions, fetchSignalHistory } from '../../infrastructure/futuresApiClient'
+import { fetchSignalHistory } from '../../infrastructure/futuresApiClient'
 
 function formatPrice(value) {
   if (!Number.isFinite(Number(value))) return '-'
@@ -62,10 +62,9 @@ function PositionRow({ position }) {
 function PaperTradingPanel({ symbol }) {
   const openPositions = usePaperTradeStore(selectOpenPaperPositionsBySymbol(symbol))
   const closedPositions = usePaperTradeStore(selectClosedPaperPositionsBySymbol(symbol))
-  const hydrateSymbol = usePaperTradeStore((s) => s.hydrateSymbol)
 
   const [isHydrating, setIsHydrating] = useState(false)
-  const [persistenceError, setPersistenceError] = useState(null)
+  const [historyError, setHistoryError] = useState(null)
   const [recentDecisions, setRecentDecisions] = useState([])
 
   useEffect(() => {
@@ -75,33 +74,29 @@ function PaperTradingPanel({ symbol }) {
         active = false
       }
 
-    const loadPersistence = async () => {
+    const loadHistory = async () => {
       setIsHydrating(true)
-      setPersistenceError(null)
+      setHistoryError(null)
 
       try {
-        const [positionsRes, historyRes] = await Promise.all([
-          fetchPaperPositions({ symbol, limit: 200, page: 1 }),
-          fetchSignalHistory({ symbol, limit: 20, page: 1 }),
-        ])
+        const historyRes = await fetchSignalHistory({ symbol, limit: 20, page: 1 })
 
         if (!active) return
-        hydrateSymbol(symbol, positionsRes?.items ?? [])
         setRecentDecisions((historyRes?.items ?? []).slice(0, 5))
       } catch (err) {
         if (!active) return
-        setPersistenceError(err.message)
+        setHistoryError(err.message)
       } finally {
         if (active) setIsHydrating(false)
       }
     }
 
-    loadPersistence()
+    loadHistory()
 
     return () => {
       active = false
     }
-  }, [symbol, hydrateSymbol])
+  }, [symbol])
 
   const metrics = useMemo(() => {
     const totalUnrealized = openPositions.reduce((acc, p) => acc + (Number(p.unrealizedPnl) || 0), 0)
@@ -152,9 +147,9 @@ function PaperTradingPanel({ symbol }) {
         </Box>
       </Box>
 
-      {persistenceError && (
+      {historyError && (
         <Typography sx={{ fontSize: 10, color: '#F59E0B', mb: 0.5 }}>
-          Persistencia no disponible: {persistenceError}
+          Historial no disponible: {historyError}
         </Typography>
       )}
 

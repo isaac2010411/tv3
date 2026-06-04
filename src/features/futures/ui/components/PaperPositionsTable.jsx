@@ -1,14 +1,23 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
-  Box, Table, TableBody, TableCell, TableHead, TableRow, Paper, Typography,
-  Chip, ToggleButtonGroup, ToggleButton, Stack,
+  Box,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Paper,
+  Typography,
+  Chip,
+  ToggleButtonGroup,
+  ToggleButton,
+  Stack,
 } from '@mui/material'
 import {
   usePaperTradeStore,
   selectOpenPaperPositionsBySymbol,
   selectClosedPaperPositionsBySymbol,
 } from '../../application/stores/paperTradeStore'
-import { fetchPaperPositions } from '../../infrastructure/futuresApiClient'
 
 const fmt = (v, d = 2) => (v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(d))
 const fmtPnl = (v) => {
@@ -20,8 +29,20 @@ const fmtPnl = (v) => {
 function StatPill({ label, value, tone = 'default' }) {
   const color = tone === 'positive' ? 'success.main' : tone === 'negative' ? 'error.main' : 'text.secondary'
   return (
-    <Box sx={{ px: 1, py: 0.4, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-      <Typography sx={{ fontSize: 9, color: 'text.secondary', lineHeight: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</Typography>
+    <Box
+      sx={{ px: 1, py: 0.4, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}
+    >
+      <Typography
+        sx={{
+          fontSize: 9,
+          color: 'text.secondary',
+          lineHeight: 1,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+        }}
+      >
+        {label}
+      </Typography>
       <Typography sx={{ fontSize: 12, color, fontWeight: 700, lineHeight: 1.2 }}>{value}</Typography>
     </Box>
   )
@@ -35,23 +56,8 @@ function StatPill({ label, value, tone = 'default' }) {
 export default function PaperPositionsTable({ symbol }) {
   const openPositions = usePaperTradeStore(selectOpenPaperPositionsBySymbol(symbol))
   const closedPositions = usePaperTradeStore(selectClosedPaperPositionsBySymbol(symbol))
-  const hydrateSymbol = usePaperTradeStore((s) => s.hydrateSymbol)
 
   const [view, setView] = useState('open')
-  const [hydrating, setHydrating] = useState(false)
-  const [error, setError] = useState(null)
-
-  useEffect(() => {
-    let active = true
-    if (!symbol) return () => { active = false }
-    setHydrating(true)
-    setError(null)
-    fetchPaperPositions({ symbol, limit: 200, page: 1 })
-      .then((res) => { if (active) hydrateSymbol(symbol, res?.items ?? []) })
-      .catch((e) => { if (active) setError(e.message) })
-      .finally(() => { if (active) setHydrating(false) })
-    return () => { active = false }
-  }, [symbol, hydrateSymbol])
 
   const metrics = useMemo(() => {
     const totalUnrealized = openPositions.reduce((acc, p) => acc + (Number(p.unrealizedPnl) || 0), 0)
@@ -71,12 +77,7 @@ export default function PaperPositionsTable({ symbol }) {
         spacing={1}
         sx={{ px: 1, py: 0.5, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}
       >
-        <ToggleButtonGroup
-          exclusive
-          size='small'
-          value={view}
-          onChange={(_, v) => v && setView(v)}
-        >
+        <ToggleButtonGroup exclusive size='small' value={view} onChange={(_, v) => v && setView(v)}>
           <ToggleButton value='open' sx={{ fontSize: 10, py: 0.1, px: 1 }}>
             Open ({openPositions.length})
           </ToggleButton>
@@ -96,20 +97,8 @@ export default function PaperPositionsTable({ symbol }) {
           tone={metrics.totalRealized >= 0 ? 'positive' : 'negative'}
         />
         <StatPill label='Win%' value={`${metrics.winRate.toFixed(0)}%`} />
-        <Chip
-          size='small'
-          variant='outlined'
-          color={hydrating ? 'warning' : 'success'}
-          label={hydrating ? 'sync' : 'mongo'}
-          sx={{ height: 18, fontSize: 9 }}
-        />
+        <Chip size='small' variant='outlined' color='success' label='backend' sx={{ height: 18, fontSize: 9 }} />
       </Stack>
-
-      {error && (
-        <Typography sx={{ fontSize: 10, color: 'warning.main', px: 1, py: 0.5 }}>
-          Persistencia no disponible: {error}
-        </Typography>
-      )}
 
       {rows.length === 0 ? (
         <Box sx={{ p: 2, flex: 1 }}>
@@ -118,7 +107,11 @@ export default function PaperPositionsTable({ symbol }) {
           </Typography>
         </Box>
       ) : (
-        <Paper variant='outlined' square sx={{ flex: 1, overflow: 'auto', borderTop: 0, borderLeft: 0, borderRight: 0 }}>
+        <Paper
+          variant='outlined'
+          square
+          sx={{ flex: 1, overflow: 'auto', borderTop: 0, borderLeft: 0, borderRight: 0 }}
+        >
           <Table size='small' stickyHeader>
             <TableHead>
               <TableRow>

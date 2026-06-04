@@ -133,6 +133,16 @@ export const useMarketDataStore = create((set, get) => ({
     }))
   },
 
+  clearServerContext(symbol) {
+    if (!symbol) return
+    set((s) => {
+      if (!(symbol in s.serverContextBySymbol) || s.serverContextBySymbol[symbol] == null) return s
+      return {
+        serverContextBySymbol: { ...s.serverContextBySymbol, [symbol]: null },
+      }
+    })
+  },
+
   setCandles(symbol, interval, candles) {
     if (!symbol || !interval) return
     const normalized = normalizeCandleList(candles, interval)

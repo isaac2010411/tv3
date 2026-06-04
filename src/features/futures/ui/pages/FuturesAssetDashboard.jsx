@@ -1,28 +1,28 @@
-import React from 'react';
-import { Box } from '@mui/material';
-import { useRenderPerf } from '../../observability/useRenderPerf';
-import { useFuturesDashboardState, INTERVALS } from '../state/useFuturesDashboardState';
-import { useOrdersState } from '../../application/useOrdersState';
-import { usePortfolioState } from '../../application/usePortfolioState';
-import { useRiskState } from '../../application/useRiskState';
+import React from 'react'
+import { Box } from '@mui/material'
+import { useRenderPerf } from '../../observability/useRenderPerf'
+import { useFuturesDashboardState, INTERVALS } from '../state/useFuturesDashboardState'
+import { useOrdersState } from '../../application/useOrdersState'
+import { usePortfolioState } from '../../application/usePortfolioState'
+import { useRiskState } from '../../application/useRiskState'
 
-import FuturesTradingLayout    from '../layout/FuturesTradingLayout';
-import FuturesHeaderSection    from '../sections/FuturesHeaderSection';
-import MarketSidebarSection    from '../sections/MarketSidebarSection';
-import ChartSection            from '../sections/ChartSection';
-import ExecutionSidebarSection from '../sections/ExecutionSidebarSection';
-import MarketFlowBottomSection from '../sections/MarketFlowBottomSection';
-import RiskBanner              from '../components/RiskBanner';
-import PortfolioSummaryCard    from '../components/PortfolioSummaryCard';
+import FuturesTradingLayout from '../layout/FuturesTradingLayout'
+import FuturesHeaderSection from '../sections/FuturesHeaderSection'
+import MarketSidebarSection from '../sections/MarketSidebarSection'
+import ChartSection from '../sections/ChartSection'
+import ExecutionSidebarSection from '../sections/ExecutionSidebarSection'
+import MarketFlowBottomSection from '../sections/MarketFlowBottomSection'
+import RiskBanner from '../components/RiskBanner'
+import PortfolioSummaryCard from '../components/PortfolioSummaryCard'
 
 export default function FuturesAssetDashboard() {
-  const s = useFuturesDashboardState();
-  useRenderPerf(s.symbol, 'FuturesAssetDashboard');
+  const s = useFuturesDashboardState()
+  useRenderPerf(s.symbol, 'FuturesAssetDashboard')
 
   // Manager subscriptions (account-level, independent of symbol).
-  useOrdersState();
-  usePortfolioState();
-  useRiskState();
+  useOrdersState()
+  usePortfolioState()
+  useRiskState()
 
   return (
     <>
@@ -46,12 +46,7 @@ export default function FuturesAssetDashboard() {
             <PortfolioSummaryCard />
           </Box>
         }
-        left={
-          <MarketSidebarSection
-            symbol={s.symbol}
-            loading={s.loading}
-          />
-        }
+        left={<MarketSidebarSection symbol={s.symbol} loading={s.loading} />}
         center={
           <ChartSection
             symbol={s.symbol}
@@ -85,5 +80,5 @@ export default function FuturesAssetDashboard() {
         }
       />
     </>
-  );
+  )
 }

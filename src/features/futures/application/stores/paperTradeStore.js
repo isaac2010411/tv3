@@ -3,11 +3,14 @@ import { create } from 'zustand'
 const EMPTY_LIST = Object.freeze([])
 
 function normalizePosition(position) {
+  const currentPrice = Number(position.currentPrice ?? position.entryPrice ?? 0)
   return {
     ...position,
     entryPrice: Number(position.entryPrice ?? 0),
     quantity: position.quantity == null ? null : Number(position.quantity),
-    currentPrice: Number(position.currentPrice ?? position.entryPrice ?? 0),
+    currentPrice,
+    exitPrice:
+      position.exitPrice != null ? Number(position.exitPrice) : position.status === 'CLOSED' ? currentPrice : null,
     unrealizedPnl: Number(position.unrealizedPnl ?? 0),
     realizedPnl: position.realizedPnl == null ? null : Number(position.realizedPnl),
   }
@@ -37,8 +40,10 @@ export const usePaperTradeStore = create((set) => ({
   cleanupSymbol(symbol) {
     if (!symbol) return
     set((s) => {
-      const o = { ...s.openBySymbol };   delete o[symbol]
-      const c = { ...s.closedBySymbol }; delete c[symbol]
+      const o = { ...s.openBySymbol }
+      delete o[symbol]
+      const c = { ...s.closedBySymbol }
+      delete c[symbol]
       return { openBySymbol: o, closedBySymbol: c }
     })
   },

@@ -8,7 +8,7 @@ import {
 } from '../infrastructure/futuresSocketClient'
 import { FUTURES_SOCKET_EVENTS } from '../infrastructure/futuresSocketEvents'
 import { normalizeServerContext } from '../domain/futuresAssetContext.model'
-import { fetchCandles } from '../infrastructure/futuresApiClient'
+import { fetchCandles, fetchPaperPositions } from '../infrastructure/futuresApiClient'
 import { useRealtimeMetricsStore } from '../observability/realtimeMetricsStore'
 import { useSubscriptionPlanStore } from './subscriptions/subscriptionPlanStore'
 
@@ -161,6 +161,16 @@ const MAX_CVD_POINTS_IN_MEMORY = 240
 const MAX_FOOTPRINTS_IN_MEMORY = 80
 const MAX_FOOTPRINT_LEVELS_IN_MEMORY = 80
 const DEBUG_REALTIME_MEMORY = String(process.env.REACT_APP_REALTIME_DEBUG_MEMORY || '').toLowerCase() === 'true'
+const DEBUG_ASSET_CONTEXT_LOG = String(process.env.REACT_APP_REALTIME_DEBUG_CONTEXT || '').toLowerCase() === 'true'
+
+function isValidAssetContextPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false
+  const hasSymbol = typeof payload.symbol === 'string' && payload.symbol.trim().length > 0
+  const hasExchangeInfo = payload.exchangeInfo && typeof payload.exchangeInfo === 'object'
+  const hasMarket = payload.market && typeof payload.market === 'object'
+  const hasAccount = payload.account && typeof payload.account === 'object'
+  return hasSymbol || hasExchangeInfo || hasMarket || hasAccount
+}
 
 export function useFuturesAssetRealtime(
   symbol,
@@ -436,6 +446,15 @@ export function useFuturesAssetRealtime(
         .catch(() => {})
     })
 
+    // Hydrate persisted paper positions on symbol init so signal/position
+    // state stays consistent after page reload even if Paper UI is not mounted.
+    fetchPaperPositions({ symbol, limit: 200, page: 1 })
+      .then((res) => {
+        if (cancelled) return
+        usePaperTradeStore.getState().hydrateSymbol(symbol, res?.items ?? [])
+      })
+      .catch(() => {})
+
     const sameSymbol = (data) => {
       const payloadSymbol = extractSymbol(data)
       return !payloadSymbol || payloadSymbol.toUpperCase() === symbol.toUpperCase()
@@ -443,7 +462,19 @@ export function useFuturesAssetRealtime(
 
     const handleContext = (data) => {
       if (!sameSymbol(data)) return
+      if (!isValidAssetContextPayload(data)) {
+        useFuturesConnectionStore.getState().setSocketError(symbol, 'Invalid ASSET_CONTEXT payload received')
+        return
+      }
       metric('asset.context', data)
+      if (DEBUG_ASSET_CONTEXT_LOG) {
+        // eslint-disable-next-line no-console
+        console.info('[futures:asset:context] received', {
+          symbol,
+          positions: Array.isArray(data?.account?.positions) ? data.account.positions.length : null,
+          openOrders: Array.isArray(data?.account?.openOrders) ? data.account.openOrders.length : null,
+        })
+      }
       const ctx = normalizeServerContext(data)
       useMarketDataStore.getState().setServerContext(symbol, ctx)
       if (ctx?.positions) usePortfolioStore.getState().setPositions(symbol, ctx.positions)

@@ -1,18 +1,4 @@
-import { normalizeServerContext } from '../domain/futuresAssetContext.model'
-
 const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000'
-
-/**
- * Fetches the full asset context for a given futures symbol.
- * @param {string} symbol e.g. "BTCUSDT"
- * @returns {Promise<Object>}
- */
-export async function fetchAssetContext(symbol) {
-  const res = await fetch(`${BASE_URL}/api/futures/assets/${encodeURIComponent(symbol)}/context`)
-  if (!res.ok) throw new Error(`fetchAssetContext failed: ${res.status} ${res.statusText}`)
-  const raw = await res.json()
-  return normalizeServerContext(raw)
-}
 
 /**
  * Fetches the list of available futures symbols.

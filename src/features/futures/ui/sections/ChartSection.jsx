@@ -29,12 +29,7 @@ function AutoHeightChart({ children }) {
   )
 }
 
-function ChartSection({
-  symbol,
-  intervalIdx,
-  onIntervalChange,
-  interval,
-}) {
+function ChartSection({ symbol, intervalIdx, onIntervalChange, interval }) {
   const candles = useMarketDataStore(selectCandlesBySymbolInterval(symbol, interval))
 
   return (

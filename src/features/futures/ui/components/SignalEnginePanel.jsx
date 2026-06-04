@@ -7,20 +7,15 @@
  *  - Confidence indicator
  *  - Per-factor score breakdown
  *  - Missing context warnings
- *  - Local position display with PnL
  */
 
 import React, { useMemo } from 'react'
-import { Box, Typography, Chip, Button, Divider, Tooltip, LinearProgress } from '@mui/material'
+import { Box, Typography, Chip, Divider, Tooltip, LinearProgress } from '@mui/material'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 
 import { useSignalEngine } from '../../application/useSignalEngine'
-import { calcUnrealizedPnL } from '../../domain/signalEngine/LocalPositionGuard'
 import SignalPopup from './SignalPopup'
-import {
-  SIGNAL_STATES,
-} from '../../domain/signalEngine/signalEngineStates'
+import { SIGNAL_STATES } from '../../domain/signalEngine/signalEngineStates'
 
 // ─── Missing context labels ────────────────────────────────────────────────────
 
@@ -82,11 +77,7 @@ function ScoreBar({ netScore }) {
   const color = netScore > 0.1 ? '#22C55E' : netScore < -0.1 ? '#EF4444' : '#64748B'
   const sign = netScore > 0.05 ? '+' : ''
   const label = `${sign}${(netScore * 100).toFixed(0)}`
-  const biasText = netScore > 0.1
-    ? 'Sesgo LONG'
-    : netScore < -0.1
-      ? 'Sesgo SHORT'
-      : 'Neutral'
+  const biasText = netScore > 0.1 ? 'Sesgo LONG' : netScore < -0.1 ? 'Sesgo SHORT' : 'Neutral'
 
   return (
     <Box sx={{ position: 'relative', width: '100%' }}>
@@ -147,11 +138,12 @@ function FactorRow({ reason }) {
   const isObj = reason && typeof reason === 'object'
   const label = isObj ? (reason.label ?? String(reason)) : String(reason)
   const side = isObj ? reason.side : null
-  const sideConfig = side === 'LONG'
-    ? { color: '#22C55E', tag: 'L', bg: 'rgba(34,197,94,0.12)' }
-    : side === 'SHORT'
-      ? { color: '#EF4444', tag: 'S', bg: 'rgba(239,68,68,0.12)' }
-      : { color: '#3B82F6', tag: '·', bg: 'rgba(59,130,246,0.12)' }
+  const sideConfig =
+    side === 'LONG'
+      ? { color: '#22C55E', tag: 'L', bg: 'rgba(34,197,94,0.12)' }
+      : side === 'SHORT'
+        ? { color: '#EF4444', tag: 'S', bg: 'rgba(239,68,68,0.12)' }
+        : { color: '#3B82F6', tag: '·', bg: 'rgba(59,130,246,0.12)' }
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, py: 0.25 }}>
@@ -190,66 +182,6 @@ function FactorRow({ reason }) {
   )
 }
 
-function LocalPositionCard({ position, currentPrice, onClose }) {
-  const pnl = calcUnrealizedPnL(position, currentPrice)
-
-  const pnlColor = !pnl ? '#94A3B8' : pnl.pnl > 0 ? '#22C55E' : '#EF4444'
-  const dirColor = position.direction === 'LONG' ? '#22C55E' : '#EF4444'
-
-  return (
-    <Box sx={{ border: '1px solid #1E293B', borderRadius: 1, p: 1 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <FiberManualRecordIcon sx={{ fontSize: 8, color: dirColor }} />
-          <Typography sx={{ fontSize: 11, fontWeight: 700, color: dirColor }}>
-            {position.direction} — {position.symbol}
-          </Typography>
-        </Box>
-        <Chip label='LOCAL' size='small' sx={{ height: 14, fontSize: 8, bgcolor: '#1E293B', color: '#64748B' }} />
-      </Box>
-
-      <Box sx={{ display: 'flex', gap: 2, mb: 0.75 }}>
-        <Box>
-          <Typography sx={{ fontSize: 9, color: 'text.secondary' }}>Entrada</Typography>
-          <Typography sx={{ fontSize: 11, color: 'text.primary' }}>{position.entryPrice?.toFixed(2) ?? '—'}</Typography>
-        </Box>
-        {position.stopLoss && (
-          <Box>
-            <Typography sx={{ fontSize: 9, color: 'text.secondary' }}>Stop</Typography>
-            <Typography sx={{ fontSize: 11, color: '#EF4444' }}>{position.stopLoss.toFixed(2)}</Typography>
-          </Box>
-        )}
-        {position.takeProfit && (
-          <Box>
-            <Typography sx={{ fontSize: 9, color: 'text.secondary' }}>Take Profit</Typography>
-            <Typography sx={{ fontSize: 11, color: '#22C55E' }}>{position.takeProfit.toFixed(2)}</Typography>
-          </Box>
-        )}
-        {pnl && (
-          <Box>
-            <Typography sx={{ fontSize: 9, color: 'text.secondary' }}>PnL</Typography>
-            <Typography sx={{ fontSize: 11, color: pnlColor, fontWeight: 700 }}>
-              {pnl.pnl >= 0 ? '+' : ''}
-              {pnl.pnl.toFixed(2)} ({pnl.pnlPct >= 0 ? '+' : ''}
-              {pnl.pnlPct.toFixed(3)}%)
-            </Typography>
-          </Box>
-        )}
-      </Box>
-
-      <Button
-        size='small'
-        variant='outlined'
-        color='error'
-        onClick={onClose}
-        sx={{ fontSize: 10, py: 0.25, px: 1, height: 22 }}
-      >
-        Cerrar posición (local)
-      </Button>
-    </Box>
-  )
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 /**
@@ -260,16 +192,13 @@ function LocalPositionCard({ position, currentPrice, onClose }) {
 function SignalEnginePanel({ symbol, interval = '1m' }) {
   const {
     engineResult,
-    position,
     hasOpenPosition,
-    currentPrice,
     isPopupOpen,
     popupSignal,
     popupState,
     popupAutoExecution,
     acceptSignal,
     rejectSignal,
-    closePosition,
     acceptExitSignal,
     dismissPopup,
   } = useSignalEngine(symbol, interval)
@@ -327,11 +256,6 @@ function SignalEnginePanel({ symbol, interval = '1m' }) {
 
         {/* Confidence */}
         <ConfidenceBar confidence={confidence} />
-
-        <Divider sx={{ borderColor: '#1E293B' }} />
-
-        {/* Local position */}
-        {hasOpenPosition && <LocalPositionCard position={position} currentPrice={currentPrice} onClose={closePosition} />}
 
         <Divider sx={{ borderColor: '#1E293B' }} />
 

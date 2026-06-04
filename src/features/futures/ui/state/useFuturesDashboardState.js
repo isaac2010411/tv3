@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useFuturesAssetContext } from '../../application/useFuturesAssetContext'
 import { useFuturesAssetRealtime } from '../../application/useFuturesAssetRealtime'
 import { useLiquidityData } from '../../application/useLiquidityData'
 import { useSocketSubscriptionSync } from '../../application/subscriptions/useSocketSubscriptionSync'
 import { useMarketDataStore, selectServerContextBySymbol } from '../../application/stores/marketDataStore'
+import { useFuturesConnectionStore, selectSocketErrorBySymbol } from '../../application/stores/futuresConnectionStore'
+import { createDefaultContext } from '../../domain/futuresAssetContext.model'
 import {
   useSignalStore,
   selectSpoofingCandidatesBySymbol,
@@ -26,7 +27,6 @@ export function useFuturesDashboardState() {
   // of every feature/interval registered by mounted hooks (debounced).
   useSocketSubscriptionSync(symbol)
 
-  const { context, loading, error } = useFuturesAssetContext(symbol)
   // Phase 1 — register all supported TFs for `candles` so 1h/4h actually
   // stream. The backend (tv1 FuturesAssetSocketAdapter) currently ignores
   // re-subscribes for the same symbol, so we need the full set on the first
@@ -38,8 +38,12 @@ export function useFuturesDashboardState() {
   const shiftEvents = useSignalStore(selectLiquidityShiftsBySymbol(symbol))
 
   const serverContext = useMarketDataStore(selectServerContextBySymbol(symbol))
+  const socketError = useFuturesConnectionStore(selectSocketErrorBySymbol(symbol))
 
-  const activeContext = serverContext ?? context
+  const activeContext = serverContext ?? createDefaultContext()
+  const context = activeContext
+  const loading = Boolean(symbol) && serverContext == null
+  const error = socketError
   const posCount = activeContext?.positions?.length ?? 0
   const orderCount = activeContext?.openOrders?.length ?? 0
 
