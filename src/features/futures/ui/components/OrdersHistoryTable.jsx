@@ -1,10 +1,10 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   Table, TableBody, TableCell, TableHead, TableRow, Paper, Chip, IconButton, Box, Typography, Tooltip,
 } from '@mui/material'
 import CancelIcon from '@mui/icons-material/Cancel'
 import {
-  useOrdersStore, selectAllOrders,
+  useOrdersStore,
 } from '../../application/stores/ordersStore'
 import { cancelOrder } from '../../infrastructure/futuresApiClient'
 
@@ -20,11 +20,13 @@ const fmt = (v, d = 2) => (v == null || Number.isNaN(Number(v)) ? '—' : Number
 const fmtTime = (ts) => (ts ? new Date(ts).toLocaleTimeString() : '—')
 
 export default function OrdersHistoryTable() {
-  const orders = useOrdersStore(selectAllOrders)
+  const ordersById = useOrdersStore((s) => s.ordersById)
   const upsertOrder = useOrdersStore((s) => s.upsertOrder)
   const [pending, setPending] = useState({})
 
-  const sorted = [...orders].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  const sorted = useMemo(() => (
+    Object.values(ordersById).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  ), [ordersById])
 
   const handleCancel = async (orderId) => {
     setPending((p) => ({ ...p, [orderId]: true }))

@@ -17,7 +17,32 @@
  * @property {Object|null} orderBook
  * @property {Object[]} positions
  * @property {Object[]} openOrders
+ * @property {number|null} availableBalance
  */
+
+function safeNumber(value, fallback = null) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function positionSize(position) {
+  return safeNumber(
+    position?.positionAmt ??
+      position?.quantity ??
+      position?.qty ??
+      position?.size ??
+      position?.contracts,
+    0,
+  );
+}
+
+function getOpenPositions(positions, symbol) {
+  if (!Array.isArray(positions)) return [];
+  return positions.filter((position) => (
+    Math.abs(positionSize(position)) > 0 &&
+    (!symbol || !position?.symbol || position.symbol === symbol)
+  ));
+}
 
 /**
  * Creates a default (empty) FuturesAssetContext.
@@ -42,6 +67,7 @@ export function createDefaultContext() {
     orderBook: null,
     positions: [],
     openOrders: [],
+    availableBalance: null,
   };
 }
 
@@ -81,7 +107,15 @@ export function normalizeServerContext(raw) {
     openInterest:       oi.openInterest            ?? 0,
     tradingRules:       raw.tradingRules           ?? null,
     orderBook:          raw.orderbook ?? null,
-    positions:          account.positions          ?? [],
+    positions:          getOpenPositions(account.positions, raw.symbol),
     openOrders:         account.openOrders         ?? [],
+    availableBalance:   safeNumber(
+      account.availableBalance ??
+        account.balance ??
+        account.usdtBalance ??
+        account.initialBalance ??
+        raw.availableBalance ??
+        raw.balance,
+    ),
   };
 }

@@ -479,6 +479,7 @@ export function useFuturesAssetRealtime(
       useMarketDataStore.getState().setServerContext(symbol, ctx)
       if (ctx?.positions) usePortfolioStore.getState().setPositions(symbol, ctx.positions)
       if (ctx?.openOrders) usePortfolioStore.getState().setOpenOrders(symbol, ctx.openOrders)
+      if (ctx?.availableBalance != null) usePortfolioStore.getState().setLiveBalance(ctx.availableBalance)
     }
 
     const handleTicker = (data) => {

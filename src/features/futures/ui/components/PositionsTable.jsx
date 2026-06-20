@@ -2,13 +2,58 @@ import React from 'react'
 import {
   Table, TableBody, TableCell, TableHead, TableRow, Paper, Typography, Chip, Box,
 } from '@mui/material'
-import { usePortfolioStore, selectAccountSnapshot } from '../../application/stores/portfolioStore'
+import {
+  usePortfolioStore,
+  selectAccountSnapshot,
+  selectPositionsBySymbol,
+} from '../../application/stores/portfolioStore'
 
-const fmt = (v, d = 2) => (v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(d))
+const fmt = (v, d = 2) => (v == null || Number.isNaN(Number(v)) ? '-' : Number(v).toFixed(d))
 
-export default function PositionsTable() {
+const num = (v, fallback = 0) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function normalizePositionForTable(position) {
+  const rawQty = num(
+    position.positionAmt ??
+      position.quantity ??
+      position.qty ??
+      position.size ??
+      position.contracts,
+  )
+  const entryPrice = num(position.entryPrice ?? position.entry)
+  const markPrice = num(position.markPrice ?? position.currentPrice ?? position.price, null)
+  const direction = position.direction ?? position.side ?? (rawQty >= 0 ? 'LONG' : 'SHORT')
+  const unrealizedPnl = num(position.unrealizedProfit ?? position.unrealizedPnl, null)
+  const realizedPnl = num(position.realizedPnl, null)
+  const notional = num(position.notional, Math.abs(rawQty) * (markPrice ?? entryPrice))
+
+  return {
+    id: position.positionId ?? position.id ?? `${position.symbol}-${direction}-${entryPrice}`,
+    symbol: position.symbol,
+    direction,
+    quantity: Math.abs(rawQty),
+    entryPrice,
+    markPrice,
+    notional,
+    pnl: unrealizedPnl ?? realizedPnl,
+  }
+}
+
+export default function PositionsTable({ symbol }) {
   const snapshot = usePortfolioStore(selectAccountSnapshot)
-  const positions = snapshot?.positions || []
+  const symbolPositions = usePortfolioStore(selectPositionsBySymbol(symbol))
+  const snapshotPositions =
+    snapshot?.live?.positions ??
+    snapshot?.account?.positions ??
+    snapshot?.futures?.positions ??
+    []
+  const basePositions = symbolPositions.length > 0
+    ? symbolPositions
+    : snapshotPositions.filter((position) => !symbol || position?.symbol === symbol)
+  const positions = basePositions.filter((position) => !symbol || position?.symbol === symbol)
 
   if (positions.length === 0) {
     return (
@@ -27,29 +72,31 @@ export default function PositionsTable() {
             <TableCell>Side</TableCell>
             <TableCell align='right'>Qty</TableCell>
             <TableCell align='right'>Entry</TableCell>
+            <TableCell align='right'>Mark</TableCell>
             <TableCell align='right'>Notional</TableCell>
-            <TableCell align='right'>Realized PnL</TableCell>
+            <TableCell align='right'>PnL</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {positions.map((p) => {
-            const notional = (p.quantity || 0) * (p.entryPrice || 0)
+            const pos = normalizePositionForTable(p)
             return (
-              <TableRow key={p.positionId || `${p.symbol}-${p.direction}`} hover>
-                <TableCell>{p.symbol}</TableCell>
+              <TableRow key={pos.id} hover>
+                <TableCell>{pos.symbol}</TableCell>
                 <TableCell>
                   <Chip
                     size='small'
-                    label={p.direction}
-                    color={p.direction === 'LONG' ? 'success' : 'error'}
+                    label={pos.direction}
+                    color={pos.direction === 'LONG' ? 'success' : 'error'}
                     variant='outlined'
                   />
                 </TableCell>
-                <TableCell align='right'>{fmt(p.quantity, 4)}</TableCell>
-                <TableCell align='right'>{fmt(p.entryPrice)}</TableCell>
-                <TableCell align='right'>{fmt(notional)}</TableCell>
-                <TableCell align='right' sx={{ color: (p.realizedPnl || 0) >= 0 ? 'success.main' : 'error.main' }}>
-                  {fmt(p.realizedPnl)}
+                <TableCell align='right'>{fmt(pos.quantity, 4)}</TableCell>
+                <TableCell align='right'>{fmt(pos.entryPrice)}</TableCell>
+                <TableCell align='right'>{fmt(pos.markPrice)}</TableCell>
+                <TableCell align='right'>{fmt(pos.notional)}</TableCell>
+                <TableCell align='right' sx={{ color: (pos.pnl || 0) >= 0 ? 'success.main' : 'error.main' }}>
+                  {fmt(pos.pnl)}
                 </TableCell>
               </TableRow>
             )

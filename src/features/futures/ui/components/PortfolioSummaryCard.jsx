@@ -1,22 +1,53 @@
 import React, { useMemo } from 'react'
-import { Card, CardContent, Typography, Stack, Box, Divider, Chip } from '@mui/material'
+import { Card, CardContent, Typography, Stack, Box, Divider } from '@mui/material'
 import ScienceIcon from '@mui/icons-material/Science'
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet'
 import {
   usePortfolioStore,
   selectAccountSnapshot,
-  selectExposure,
-  selectPerformance,
+  selectLiveBalance,
 } from '../../application/stores/portfolioStore'
 import { usePaperTradeStore } from '../../application/stores/paperTradeStore'
 
-const fmt = (v, digits = 2) => (v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(digits))
+const fmt = (v, digits = 2) => (v == null || Number.isNaN(Number(v)) ? '-' : Number(v).toFixed(digits))
 const fmtPnl = (v) => {
-  if (v == null || Number.isNaN(Number(v))) return '—'
+  if (v == null || Number.isNaN(Number(v))) return '-'
   const n = Number(v)
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}`
 }
 const pnlColor = (v) => (v == null ? undefined : Number(v) >= 0 ? 'success.main' : 'error.main')
+
+const num = (v, fallback = null) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function positionQty(position) {
+  return num(
+    position?.positionAmt ??
+      position?.quantity ??
+      position?.qty ??
+      position?.size ??
+      position?.contracts,
+    0,
+  )
+}
+
+function isSameSymbol(position, symbol) {
+  return !symbol || !position?.symbol || position.symbol === symbol
+}
+
+function openLivePositions(positions, symbol) {
+  if (!Array.isArray(positions)) return []
+  return positions.filter((position) => Math.abs(positionQty(position)) > 0 && isSameSymbol(position, symbol))
+}
+
+function sumPositionField(positions, fields) {
+  return positions.reduce((acc, position) => {
+    const value = fields.reduce((found, field) => found ?? num(position?.[field]), null)
+    return acc + (value ?? 0)
+  }, 0)
+}
 
 function MetricCell({ label, value, color }) {
   return (
@@ -45,17 +76,42 @@ function Section({ icon, title, children }) {
   )
 }
 
-export default function PortfolioSummaryCard() {
+export default function PortfolioSummaryCard({ symbol, activeContext }) {
   const snapshot = usePortfolioStore(selectAccountSnapshot)
-  const exposure = usePortfolioStore(selectExposure)
-  const performance = usePortfolioStore(selectPerformance)
+  const liveBalance = usePortfolioStore(selectLiveBalance)
+  const positionsBySymbol = usePortfolioStore((s) => s.positionsBySymbol)
   const openBySymbol = usePaperTradeStore((s) => s.openBySymbol)
   const closedBySymbol = usePaperTradeStore((s) => s.closedBySymbol)
 
-  const liveOpenCount = snapshot?.positions?.length ?? 0
-  const liveNotional = snapshot?.totalNotional ?? exposure?.totalNotional
-  const liveRealized = performance?.totalRealizedPnl ?? snapshot?.realizedPnl
-  const liveUnrealized = snapshot?.unrealizedPnl
+  const livePositionsFromContext = openLivePositions(activeContext?.positions, symbol)
+  const livePositionsFromStore = openLivePositions(positionsBySymbol[symbol], symbol)
+  const livePositionsFromSnapshot = openLivePositions(
+    snapshot?.live?.positions ?? snapshot?.account?.positions ?? snapshot?.futures?.positions,
+    symbol,
+  )
+
+  const livePositions = livePositionsFromContext.length > 0
+    ? livePositionsFromContext
+    : livePositionsFromStore.length > 0
+      ? livePositionsFromStore
+      : livePositionsFromSnapshot
+
+  const liveOpenCount = livePositions.length
+  const liveAvailableBalance =
+    activeContext?.availableBalance ??
+    snapshot?.live?.availableBalance ??
+    snapshot?.account?.availableBalance ??
+    snapshot?.futures?.availableBalance ??
+    liveBalance
+  const liveUnrealized =
+    snapshot?.live?.unrealizedPnl ??
+    snapshot?.account?.unrealizedPnl ??
+    snapshot?.futures?.unrealizedPnl ??
+    sumPositionField(livePositions, ['unrealizedProfit', 'unrealizedPnl'])
+  const liveRealized =
+    snapshot?.live?.realizedPnl ??
+    snapshot?.account?.realizedPnl ??
+    snapshot?.futures?.realizedPnl
 
   const paperStats = useMemo(() => {
     let open = 0
@@ -83,9 +139,6 @@ export default function PortfolioSummaryCard() {
     }
   }, [openBySymbol, closedBySymbol])
 
-  // Backend-tracked paper account: starting cap (default $10k) + cumulative
-  // realized PnL replayed from Mongo on boot. Falls back to the live in-store
-  // realized PnL if the snapshot hasn't arrived yet (e.g. first paint).
   const backendPaperSummary = snapshot?.paperSummary ?? null
   const paperAccount = snapshot?.paper ?? null
   const paperStartingEquity = backendPaperSummary?.startingEquity ?? paperAccount?.startingEquity ?? 10_000
@@ -105,7 +158,7 @@ export default function PortfolioSummaryCard() {
             title='Live'
           >
             <MetricCell label='Pos' value={liveOpenCount} />
-            <MetricCell label='Notional' value={fmt(liveNotional)} />
+            <MetricCell label='Balance' value={fmt(liveAvailableBalance)} />
             <MetricCell label='uPnL' value={fmtPnl(liveUnrealized)} color={pnlColor(liveUnrealized)} />
             <MetricCell label='rPnL' value={fmtPnl(liveRealized)} color={pnlColor(liveRealized)} />
           </Section>
@@ -120,21 +173,6 @@ export default function PortfolioSummaryCard() {
             <MetricCell label='Win%' value={`${Number(paperWinRate).toFixed(0)}%`} />
           </Section>
         </Stack>
-        {exposure?.exposureBySymbol && Object.keys(exposure.exposureBySymbol).length > 0 && (
-          <Box sx={{ mt: 0.75, pt: 0.5, borderTop: '1px dashed', borderColor: 'divider' }}>
-            <Stack direction='row' spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-              {Object.entries(exposure.exposureBySymbol).map(([sym, val]) => (
-                <Chip
-                  key={sym}
-                  size='small'
-                  variant='outlined'
-                  label={`${sym} ${fmt(val)}`}
-                  sx={{ height: 18, fontSize: 9 }}
-                />
-              ))}
-            </Stack>
-          </Box>
-        )}
       </CardContent>
     </Card>
   )

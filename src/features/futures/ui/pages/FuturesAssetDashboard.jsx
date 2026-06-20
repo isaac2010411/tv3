@@ -43,7 +43,7 @@ export default function FuturesAssetDashboard() {
                 shiftEvents={s.shiftEvents}
               />
             </Box>
-            <PortfolioSummaryCard />
+            <PortfolioSummaryCard symbol={s.symbol} activeContext={s.activeContext} />
           </Box>
         }
         left={<MarketSidebarSection symbol={s.symbol} loading={s.loading} />}

@@ -10,6 +10,76 @@ import { create } from 'zustand';
 
 export const EMPTY_ARRAY = Object.freeze([]);
 
+function safeNumber(value, fallback = null) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function positionSize(position) {
+  return safeNumber(
+    position?.positionAmt ??
+      position?.quantity ??
+      position?.qty ??
+      position?.size ??
+      position?.contracts,
+    0,
+  )
+}
+
+export function getOpenLivePositions(positions) {
+  if (!Array.isArray(positions)) return []
+  return positions.filter((position) => Math.abs(positionSize(position)) > 0)
+}
+
+export function extractLivePositions(snapshot) {
+  return getOpenLivePositions(
+    snapshot?.account?.positions ??
+      snapshot?.live?.positions ??
+      snapshot?.futures?.positions ??
+      [],
+  )
+}
+
+export function extractLiveBalance(payload) {
+  if (payload == null) return null
+  if (typeof payload === 'number' || typeof payload === 'string') return safeNumber(payload)
+
+  return safeNumber(
+    payload.availableBalance ??
+      payload.balance ??
+      payload.usdtBalance ??
+      payload.initialBalance ??
+      payload.walletBalance ??
+      payload.account?.availableBalance ??
+      payload.account?.balance ??
+      payload.account?.usdtBalance ??
+      payload.live?.availableBalance ??
+      payload.live?.balance ??
+      payload.futures?.availableBalance ??
+      payload.futures?.balance ??
+      payload.asset?.availableBalance,
+  )
+}
+
+function normalizeAccountSnapshot(snapshot, liveBalance) {
+  if (!snapshot || typeof snapshot !== 'object') {
+    return liveBalance == null ? null : { positions: [], availableBalance: liveBalance }
+  }
+
+  const positions = extractLivePositions(snapshot)
+  const availableBalance = extractLiveBalance(snapshot) ?? liveBalance
+  return {
+    ...snapshot,
+    positions,
+    availableBalance,
+    live: {
+      ...(snapshot.live ?? {}),
+      positions,
+      availableBalance,
+    },
+  }
+}
+
 export const usePortfolioStore = create((set) => ({
   /** { [symbol]: PositionObject[] } */
   positionsBySymbol: {},
@@ -27,6 +97,8 @@ export const usePortfolioStore = create((set) => ({
   exposure: null,
   /** Performance stats { realizedPnlByDay, totalRealizedPnl, ... } */
   performance: null,
+  /** USDT available balance from Binance futures account */
+  liveBalance: null,
 
   // ── actions ───────────────────────────────────────────────────────────────
 
@@ -79,7 +151,23 @@ export const usePortfolioStore = create((set) => ({
 
   // ── account-level actions ────────────────────────────────────────────────
   applySnapshot(snapshot) {
-    set({ accountSnapshot: snapshot || null })
+    set((s) => {
+      const liveBalance = extractLiveBalance(snapshot) ?? s.liveBalance
+      return {
+        liveBalance,
+        accountSnapshot: normalizeAccountSnapshot(snapshot, liveBalance),
+      }
+    })
+  },
+
+  setLiveBalance(balance) {
+    set((s) => {
+      const liveBalance = extractLiveBalance(balance)
+      return {
+        liveBalance,
+        accountSnapshot: normalizeAccountSnapshot(s.accountSnapshot, liveBalance),
+      }
+    })
   },
 
   setExposure(exposure) {
@@ -103,3 +191,4 @@ export const selectBalanceBySymbol = (symbol) => (s) =>
 export const selectAccountSnapshot = (s) => s.accountSnapshot;
 export const selectExposure = (s) => s.exposure;
 export const selectPerformance = (s) => s.performance;
+export const selectLiveBalance = (s) => s.liveBalance;

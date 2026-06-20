@@ -111,7 +111,7 @@ function MarketFlowBottomSection({
             />
           </Tabs>
           <Box sx={{ height: 175, overflow: 'hidden auto' }}>
-            {bottomTab === 0 && <PositionsTable />}
+            {bottomTab === 0 && <PositionsTable symbol={symbol} />}
             {bottomTab === 1 && <OrdersHistoryTable />}
             {bottomTab === 2 && <PaperPositionsTable symbol={symbol} />}
             {bottomTab === 3 && (
